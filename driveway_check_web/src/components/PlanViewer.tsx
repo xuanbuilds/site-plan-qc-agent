@@ -116,6 +116,11 @@ type Props = {
 	checks: Check[] | null;
 	/** SVG user units per foot, to place feet-space geometry on the drawing. */
 	px_per_ft: number | null;
+	/** Picking two points to establish the scale, rather than selecting regions. */
+	calibrating: boolean;
+	/** Distance between the two picked points, in SVG user units. Null while fewer
+	 * than two are down. */
+	on_span: (svg_units: number | null) => void;
 	on_select: (index: number | null) => void;
 	on_confirm: () => void;
 	on_reject: () => void;
@@ -137,6 +142,8 @@ export function PlanViewer({
 	features,
 	checks,
 	px_per_ft,
+	calibrating,
+	on_span,
 	on_select,
 	on_confirm,
 	on_reject,
@@ -155,6 +162,10 @@ export function PlanViewer({
 		(key: string) => set_declined((prior) => new Set(prior).add(key)),
 		[]
 	);
+	/** The two points being measured, in the drawing's own units, plus where the
+	 * cursor is so the second leg can rubber-band before it is committed. */
+	const [picks, set_picks] = useState<{ x: number; y: number }[]>([]);
+	const [hover, set_hover] = useState<{ x: number; y: number } | null>(null);
 	const [anchor, set_anchor] = useState<{ x: number; y: number } | null>(null);
 	/** Bumped whenever the frame resizes, to re-run the layout-dependent effects. */
 	const [resized, set_resized] = useState(0);
@@ -171,6 +182,28 @@ export function PlanViewer({
 				.join(""),
 		[paints]
 	);
+
+	/** A screen position in the drawing's own coordinates.
+	 *
+	 * The inlined plan's root <svg> is the one element that knows this mapping: its
+	 * screen matrix already folds in the viewBox, the letterboxing that fits it to
+	 * the pane, and the wrapper's pan-and-zoom transform. Inverting it is exact, so
+	 * a pick lands where the user clicked at any zoom. */
+	const drawing_point = useCallback((client_x: number, client_y: number) =>
+	{
+		const svg = frame.current?.querySelector("svg") as SVGSVGElement | null;
+		const ctm = svg?.getScreenCTM?.();
+		if (!ctm) return null;
+		const point = new DOMPoint(client_x, client_y).matrixTransform(ctm.inverse());
+		return { x: point.x, y: point.y };
+	}, []);
+
+	// Leaving calibration drops the picks: they only mean anything alongside the
+	// distance the user is being asked for.
+	useEffect(() =>
+	{
+		if (!calibrating) { set_picks([]); set_hover(null); }
+	}, [calibrating]);
 
 	/** Zoom about a point so whatever is under the cursor stays under the cursor. */
 	const zoom_at = useCallback((client_x: number, client_y: number, factor: number) =>
@@ -282,7 +315,9 @@ export function PlanViewer({
 
 	return (
 		<section className="relative min-w-0 flex-1 overflow-hidden bg-muted/40">
-			{selected !== null && (
+			{/* Nothing is greyed while measuring: a dimension line or scale bar is
+			    usually drawn in one of the colours that would be flattened away. */}
+			{selected !== null && !calibrating && (
 				<style>{`
 					${grey_rules}
 					svg [data-idx="${selected}"]{
@@ -295,7 +330,7 @@ export function PlanViewer({
 			<div
 				ref={frame}
 				className="relative h-full w-full touch-none select-none overflow-hidden"
-				style={{ cursor: grabbing ? "grabbing" : "grab" }}
+				style={{ cursor: calibrating ? "crosshair" : grabbing ? "grabbing" : "grab" }}
 				onDragStart={(e) => e.preventDefault()}
 				onPointerDown={(e) =>
 				{
@@ -309,6 +344,7 @@ export function PlanViewer({
 				}}
 				onPointerMove={(e) =>
 				{
+					if (calibrating && picks.length === 1) set_hover(drawing_point(e.clientX, e.clientY));
 					const from = dragging.current;
 					const rect = frame.current?.getBoundingClientRect();
 					if (!from || !rect) return;
@@ -318,6 +354,24 @@ export function PlanViewer({
 				{
 					const from = dragging.current;
 					if (from && Math.hypot(e.clientX - from.downX, e.clientY - from.downY) > CLICK_SLOP_PX) return;
+
+					if (calibrating)
+					{
+						const point = drawing_point(e.clientX, e.clientY);
+						if (!point) return;
+						// A third click starts over rather than doing nothing, so a misplaced
+						// pick is corrected by carrying on instead of by finding a reset.
+						const next = picks.length >= 2 ? [point] : [...picks, point];
+						set_picks(next);
+						set_hover(null);
+						on_span(
+							next.length === 2
+								? Math.hypot(next[1].x - next[0].x, next[1].y - next[0].y)
+								: null
+						);
+						return;
+					}
+
 					const hit = (e.target as Element)?.closest?.("[data-idx]");
 					const raw = hit?.getAttribute("data-idx");
 					if (raw === null || raw === undefined) { on_select(null); return; }
@@ -333,7 +387,59 @@ export function PlanViewer({
 					dangerouslySetInnerHTML={{ __html: markup }}
 				/>
 
-				{features && px_per_ft && (
+				{/* The measuring line, drawn in the plan's own coordinates so it stays on
+				    the features it was placed against through any pan or zoom. Strokes
+				    are non-scaling so a zoomed-in pick stays a hairline to aim with. */}
+				{calibrating && picks.length > 0 && (
+					<div
+						className="pointer-events-none absolute inset-0 flex items-center justify-center [&>svg]:max-h-full [&>svg]:max-w-full"
+						style={overlay_transform}
+					>
+						<svg viewBox={svg_view_box(markup)} className="overflow-visible">
+							{(() =>
+							{
+								const end = picks[1] ?? hover;
+								return (
+									<>
+										{end && (
+											<line
+												x1={picks[0].x}
+												y1={picks[0].y}
+												x2={end.x}
+												y2={end.y}
+												stroke="var(--color-destructive)"
+												strokeWidth={2}
+												strokeDasharray={picks[1] ? undefined : "6 4"}
+												vectorEffect="non-scaling-stroke"
+											/>
+										)}
+										{[picks[0], picks[1]].map((p, i) =>
+											p ? (
+												<circle
+													key={i}
+													cx={p.x}
+													cy={p.y}
+													r={4}
+													fill="var(--color-destructive)"
+													stroke="var(--color-background)"
+													strokeWidth={1.5}
+													vectorEffect="non-scaling-stroke"
+													// r is in drawing units, so without this the dots balloon
+													// as you zoom in to aim.
+													style={{ transform: `scale(${1 / view.scale})`, transformBox: "fill-box", transformOrigin: "center" }}
+												/>
+											) : null
+										)}
+									</>
+								);
+							})()}
+						</svg>
+					</div>
+				)}
+
+				{/* Findings are hidden while measuring: their bubbles sit over the plan
+				    and would take the clicks, and a re-measure makes them stale anyway. */}
+				{features && px_per_ft && !calibrating && (
 					<div
 						className="pointer-events-none absolute inset-0 flex items-center justify-center [&>svg]:max-h-full [&>svg]:max-w-full"
 						style={overlay_transform}
@@ -356,7 +462,7 @@ export function PlanViewer({
 					</div>
 				)}
 
-				{label_anchors.map((a) =>
+				{!calibrating && label_anchors.map((a) =>
 				{
 					const region_checks = collapse_pending(
 						(checks ?? []).filter((c) => c.region_index === a.index)
@@ -440,7 +546,7 @@ export function PlanViewer({
 					);
 				})}
 
-				{anchor && confirmed !== true && (
+				{anchor && confirmed !== true && !calibrating && (
 					<SpeechBubble x={anchor.x} y={anchor.y} side="left" width={214}>
 						<p className="text-xs leading-relaxed">Driveway found.</p>
 						{/* The bubble sits inside the frame, so a button click also reaches the
