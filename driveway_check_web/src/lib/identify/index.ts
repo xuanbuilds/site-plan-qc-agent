@@ -209,7 +209,14 @@ export function identify(ring: readonly Pt[], options: IdentifyOptions = {}): Id
 			.sort((a, b) => b.length - a.length)[0];
 		if (!spine) return [];
 		const key = region.category.toLowerCase();
-		return [emit(key + "_width", spine.avg_width), emit(key + "_length", spine.length)];
+		// The reported width is the spine's MEDIAN width. Its average is pulled down
+		// by every pinch the spine crosses: option_1's drive is drawn 24.0 ft wide and
+		// the average read 23.1, because the profile dips to 8.9 ft at one point. A
+		// 25 ft two-way aisle drawn at exactly 25.0 would have false-failed. The
+		// median reads 23.97. The classifier still uses the average for its aspect
+		// ratio, where the 2.5 cutoff was tuned against it.
+		const width = median(spine.node_indices.map((i) => welded.profile.at(i)));
+		return [emit(key + "_width", width), emit(key + "_length", spine.length)];
 	});
 
 	const counts: Record<string, number> = {};
