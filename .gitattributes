@@ -1,0 +1,7 @@
+# Normalise line endings in the repo; check out native on each platform.
+* text=auto
+
+# Rhino and Grasshopper documents are binary — never let git rewrite them.
+*.3dm binary
+*.gh  binary
+*.ghx binary

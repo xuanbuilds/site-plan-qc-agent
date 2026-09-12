@@ -1,0 +1,380 @@
+{
+  "$comment": [
+    "SOURCE PROVENANCE. JSON has no comment syntax, so provenance lives in these $comment / source keys rather than // lines. Read source.documents first: it is the complete list of what was read to build this file.",
+    "DRAFT - NOT REVIEWED. Every rule carries needs_review:true until a human checks it against the cited document. No verdict should be shown to a plan reviewer before that.",
+    "This is a COVERAGE MANIFEST, not just a ruleset. It lists provisions we CANNOT check alongside those we can, so the readout can state what was and was not examined. Silence is the failure mode a QC tool must not have."
+  ],
+
+  "source": {
+    "jurisdiction": "City of Austin",
+    "document": "Transportation Criteria Manual (TCM)",
+    "edition": "UNVERIFIED - the .docx exports carry no edition or revision date. Confirm against the published manual before sign-off.",
+    "retrieved": "2026-09-01",
+    "root": "C:/XY/260729_feasibility/regulations/Austin",
+
+    "documents": [
+      {
+        "id": "tcm-7",
+        "title": "TCM Section 7 - Driveways",
+        "file": "TCM SECTION 7 DRIVEWAYS.docx",
+        "bytes": 1243918,
+        "sha256_prefix": "d51323992f0f3bda",
+        "coverage": "read in full",
+        "supplies": ["7.3.1", "7.5.1.3", "7.6.1.1", "7.6.2.C", "Table 7-1", "Table 7-2", "Table 7-3", "Table 7-4", "Table 7-5"]
+      },
+      {
+        "id": "tcm-9",
+        "title": "TCM Section 9 - Parking and Loading",
+        "file": "TCM SECTION 9 PARKING AND LOADING.docx",
+        "bytes": 6126485,
+        "sha256_prefix": "83787de40cd6b7dc",
+        "coverage": "read in full",
+        "supplies": ["9.2", "9.3.2", "9.3.4", "9.4.1", "9.5", "9.8", "Table 9-2", "Table 9-5"]
+      }
+    ],
+
+    "documents_present_but_not_read": [
+      {
+        "file": "TCM SECTION 3 GEOMETRIC DESIGN CRITERIA.docx",
+        "why": "turning and design-vehicle criteria; relevant to fire-lane and truck movements but no rule here depends on it yet"
+      },
+      {
+        "file": "LDC CHAPTER 25-6 TRANSPORTATION.docx",
+        "why": "the ordinance the TCM implements; would be the authority if the two ever disagree"
+      },
+      {
+        "file": "LDC CHAPTER 25-2 SUBCHAPTER C USE AND DEVELOPMENT REGULATIONS.docx",
+        "why": "sets REQUIRED PARKING COUNT, which tcm-9.3.2.B-compact-ratio needs. Currently taken as a site input instead of derived."
+      }
+    ],
+
+    "extraction": {
+      "method": "Claude read the document text once, offline, and wrote these rules by hand. No LLM runs at check time - see rules.schema.md, 'Claude is a compiler, not an interpreter'.",
+      "caveats": [
+        "TABLE 7-2 HAS VERTICALLY MERGED CELLS. A plain text extraction returns it almost entirely blank. The values here were reconstructed by resolving the merges manually (Typical 20 ft max at every Street Level; Fire 20 ft at Levels 1-2 then 25 ft; Industrial 25 ft). This is the single most likely place in the file for a wrong number to hide - verify it against the document before sign-off.",
+        "Table 7-5 is driveway SPACING (50-280 ft), not width. An earlier project note had this wrong. Driveway width is Table 7-2, and it is a MAXIMUM only - there is no minimum driveway width at the street.",
+        "Section 7 governs the street connection; Section 9 governs inside the property line. Both state 20 ft. It is a MAX in 7 and a MIN in 9. Any rule that confuses the two inverts its verdict."
+      ]
+    }
+  },
+
+  "status_vocabulary": {
+    "checkable": "geometry + inputs available; evaluator can return PASS/FAIL",
+    "needs_input": "rule understood, but a listed input is missing -> CANNOT_DETERMINE",
+    "needs_geometry": "requires identification work not yet built",
+    "out_of_scope": "deliberately not checked; state this in the readout"
+  },
+
+  "rules": [
+    {
+      "id": "tcm-9.3.4.2.H-internal-width",
+      "status": "checkable",
+      "applies_to": "DRIVE",
+      "dimension": "drive_width",
+      "conditions": { "aisle_direction": "two_way" },
+      "min_ft": 20,
+      "cite": { "doc": "tcm-9", "section": "9.3.4.2.H", "quote": "The minimum width for an internal drive or circulation aisle with no parking is 20 ft. for two-way traffic and 10 ft. for one-way traffic." },
+      "needs_review": true,
+      "notes": "Applies INSIDE the property line. Contrast tcm-7-table-7-2, a MAXIMUM at the street. Same number, opposite direction."
+    },
+    {
+      "id": "tcm-9.3.4.2.H-internal-width-oneway",
+      "status": "checkable",
+      "applies_to": "DRIVE",
+      "dimension": "drive_width",
+      "conditions": { "aisle_direction": "one_way" },
+      "min_ft": 10,
+      "cite": { "doc": "tcm-9", "section": "9.3.4.2.H", "quote": "The minimum width for an internal drive or circulation aisle with no parking is 20 ft. for two-way traffic and 10 ft. for one-way traffic." },
+      "needs_review": true
+    },
+    {
+      "id": "tcm-9.3.4.3.B-minor-drive-length",
+      "status": "checkable",
+      "applies_to": "DRIVE",
+      "dimension": "drive_length",
+      "conditions": { "driveway_class": "minor", "accesses_parking_lot": false },
+      "min_ft": 20,
+      "cite": { "doc": "tcm-9", "section": "9.3.4.3.B", "quote": "For minor driveways that do not access a parking lot, the length of the driveway must fully incorporate the length of one parked vehicle or 20 ft." },
+      "needs_review": true,
+      "notes": "Checkable with what Part 2 already measures. No new input."
+    },
+    {
+      "id": "tcm-7.5.1.3-driveway-angle",
+      "status": "checkable",
+      "applies_to": "DRIVE",
+      "dimension": "driveway_angle_deg",
+      "conditions": {},
+      "exact_deg": 90,
+      "cite": { "doc": "tcm-7", "section": "7.5.1.3", "quote": "Driveways shall be 90 degrees to the through lanes. Angles less than 90 degrees are not allowed as they encourage faster turning speeds which are not desired for safety on pedestrian facilities." },
+      "needs_review": true,
+      "notes": "UNCONDITIONAL - no site parameters needed. Best first rule. Needs only the road centerline pin, which already exists."
+    },
+
+    {
+      "id": "tcm-7-table-7-2-throat-width",
+      "status": "needs_input",
+      "applies_to": "APRON",
+      "dimension": "throat_width",
+      "conditions": { "street_level": "*", "driveway_column": "*" },
+      "max_ft_by": {
+        "typical":   { "L1": 20, "L2": 20, "L2_3lane": 20, "L3_single_median": 20, "L3_4_multilane": 20 },
+        "fire":      { "L1": 20, "L2": 20, "L2_3lane": 25, "L3_single_median": 25, "L3_4_multilane": 25 },
+        "industrial":{ "L1": 25, "L2": 25, "L2_3lane": 25, "L3_single_median": 25, "L3_4_multilane": 25 }
+      },
+      "cite": { "doc": "tcm-7", "section": "Table 7-2", "quote": "Table 7-2 - Maximum Driveway Width (Throat Width). The driveway width defines the width of the driveway throat, measured from face of curb to face of curb or edge of pavement to edge of pavement." },
+      "needs": ["street_level", "driveway_column"],
+      "needs_review": true,
+      "notes": "TABLE HAD VERTICALLY MERGED CELLS - values above are the resolved table, NOT what a naive text extraction returns. Verify against the document before sign-off. The throat width IS the apron mouth width ApronFinder already computes."
+    },
+    {
+      "id": "tcm-7-table-7-2-note6-garage",
+      "status": "needs_input",
+      "applies_to": "APRON",
+      "dimension": "throat_width",
+      "conditions": { "high_capacity": true, "serves_garage": true },
+      "max_ft": 32,
+      "cite": { "doc": "tcm-7", "section": "Table 7-2 note 6", "quote": "High capacity driveways serving a parking garage may have a driveway width of 32 ft. maximum to accommodate 3 lanes of travel for ingress and egress operations." },
+      "needs": ["high_capacity", "serves_garage"],
+      "needs_review": true
+    },
+    {
+      "id": "tcm-7-table-7-1-curb-radius",
+      "status": "needs_input",
+      "applies_to": "APRON",
+      "dimension": "curb_radius",
+      "conditions": { "street_level": "*", "driveway_column": "*" },
+      "max_ft_by": {
+        "typical":   { "L1": 10, "L2": 10, "L2_3lane": 15, "L3_single_median": 15, "L3_4_multilane": 15 },
+        "fire":      { "L1": 15, "L2": 15, "L2_3lane": 15, "L3_single_median": { "in": 20, "out": 25 }, "L3_4_multilane": 15 },
+        "industrial":{ "L1": 15, "L2": 15, "L2_3lane": 25, "L3_single_median": { "in": 25, "out": 50 }, "L3_4_multilane": 20 }
+      },
+      "cite": { "doc": "tcm-7", "section": "Table 7-1", "quote": "Table 7-1 - Driveway Curb Radius Criteria. The curb radius of a driveway refers to the curb return or transitional area between the through lanes of the street and the throat of the driveway." },
+      "needs": ["street_level", "driveway_column"],
+      "needs_review": true,
+      "notes": "THIS GOVERNS THE APRON ARCS, which ConnectionRadii currently excludes. The internal drive/lot fillet we do report is not regulated by Section 7 at all - see tcm-9.3.4.2.C."
+    },
+
+    {
+      "id": "tcm-9-table-9-2-stall-width",
+      "status": "needs_geometry",
+      "applies_to": "STALL",
+      "dimension": "stall_width",
+      "conditions": { "stall_type": "standard" },
+      "min_ft": 8.5,
+      "cite": { "doc": "tcm-9", "section": "Table 9-2", "quote": "Table 9-2 - Surface Lot Parking Criteria. Width of Stall 8 ft.-6 in." },
+      "needs": ["stall curves"],
+      "needs_review": true,
+      "notes": "Compact is 7 ft-6 in. Derive standard vs compact from measured width; a stall at 8 ft-0 in is neither and is a genuine FAIL."
+    },
+    {
+      "id": "tcm-9-table-9-2-stall-depth",
+      "status": "needs_geometry",
+      "applies_to": "STALL",
+      "dimension": "stall_depth",
+      "conditions": { "stall_type": "standard", "parking_angle": "*" },
+      "min_ft_by_angle": { "30": 16.0, "45": 17.0, "60": 18.5, "75": 18.5, "90": 17.5 },
+      "cite": { "doc": "tcm-9", "section": "Table 9-2", "quote": "Depth of Stall 90 degrees to Aisle." },
+      "needs": ["stall curves"],
+      "needs_review": true,
+      "notes": "Parallel stalls are 22 ft length, 8 ft-6 in width. Derive parking angle from stall orientation against its adjacent aisle."
+    },
+    {
+      "id": "tcm-9-table-9-2-aisle-width",
+      "status": "needs_geometry",
+      "applies_to": "AISLE",
+      "dimension": "aisle_width",
+      "conditions": { "parking_angle": "*", "aisle_direction": "*" },
+      "min_ft_by_angle": {
+        "one_way": { "30": 12.0, "45": 14.0, "60": 16.0, "75": 18.0 },
+        "two_way": { "90": 25.0, "parallel": 25.0 }
+      },
+      "cite": { "doc": "tcm-9", "section": "Table 9-2", "quote": "Width of Aisle - One Way / Two Way." },
+      "needs": ["stall curves", "aisle_direction"],
+      "needs_review": true,
+      "notes": "Aisle = LOT minus stalls. Structured parking uses Table 9-3 with slightly smaller aisles (24 ft at 90 degrees)."
+    },
+    {
+      "id": "tcm-9.3.2.O-parking-bay-length",
+      "status": "needs_geometry",
+      "applies_to": "STALL",
+      "dimension": "bay_length",
+      "conditions": {},
+      "max_ft": 200,
+      "max_stalls": 20,
+      "cite": { "doc": "tcm-9", "section": "9.3.2.O", "quote": "Parking bays (rows of parking spaces separated by parking tree islands) shall be no more than 200 ft. in length or 20 parking stalls long, whichever is less." },
+      "needs": ["stall curves"],
+      "needs_review": true,
+      "notes": "Whichever is LESS. Does not apply to structured parking."
+    },
+    {
+      "id": "tcm-9.3.2.B-compact-ratio",
+      "status": "needs_input",
+      "applies_to": "SITE",
+      "dimension": "compact_ratio",
+      "conditions": {},
+      "max_ratio": 0.30,
+      "cite": { "doc": "tcm-9", "section": "9.3.2.B", "quote": "Compact parking stalls shall not exceed 30% of the required parking spaces for a site." },
+      "needs": ["stall curves", "required_parking_count"],
+      "needs_review": true,
+      "notes": "Denominator is REQUIRED spaces per the LDC, not provided spaces."
+    },
+
+    {
+      "id": "tcm-9-table-9-5-throat-storage",
+      "status": "needs_input",
+      "applies_to": "DRIVE",
+      "dimension": "throat_storage_length",
+      "conditions": { "spaces_per_driveway": "*", "land_use_group": "*", "left_turn_allowed": "*" },
+      "min_ft_by": {
+        "commercial_or_multifamily": { "no_left": { "lt25": 25, "25_50": 25, "51_100": 25, "101_200": 40, "gt200": 100 },
+                                       "left":    { "lt25": 25, "25_50": 40, "51_100": 40, "101_200": 80, "gt200": 150 } },
+        "industrial":                { "no_left": { "lt25": 25, "25_50": 25, "51_100": 40, "101_200": 40, "gt200": 40 },
+                                       "left":    { "lt25": 25, "25_50": 40, "51_100": 40, "101_200": 60, "gt200": 100 } }
+      },
+      "cite": { "doc": "tcm-9", "section": "Table 9-5 / 9.3.4.3.A", "quote": "Throat length is measured from the property line to an interruption point. An interruption point consists of the first intersecting aisle, internal driveway, or parking stall." },
+      "needs": ["plot_line", "stall curves", "land_use_group", "left_turn_allowed"],
+      "needs_review": true,
+      "notes": "The interruption point IS our first DRIVE-to-AISLE delineation line. Datum is the property line."
+    },
+    {
+      "id": "tcm-7-table-7-4-driveway-count",
+      "status": "needs_input",
+      "applies_to": "SITE",
+      "dimension": "driveway_count",
+      "conditions": { "frontage_ft": "*" },
+      "max_count_by_frontage": { "lt300": 1, "300_600": 2, "gt600": 3 },
+      "cite": { "doc": "tcm-7", "section": "Table 7-4", "quote": "Table 7-4 - Maximum Site Access Connections. Property Street Frontage (ft.) / Maximum Number of Allowable Driveways." },
+      "needs": ["plot_line", "road_centerline"],
+      "needs_review": true,
+      "notes": "Frontage = the lot-line segment parallel to the road centerline. Both inputs available."
+    },
+    {
+      "id": "tcm-7-table-7-5-driveway-spacing",
+      "status": "needs_input",
+      "applies_to": "SITE",
+      "dimension": "driveway_spacing",
+      "conditions": { "street_level": "*", "driveway_class": "*" },
+      "min_ft_by": {
+        "minor": { "L1": 50, "L2": 75, "L3": null, "L4": null },
+        "major": { "L1": 75, "L2": 150, "L3": 200, "L4": 280 }
+      },
+      "cite": { "doc": "tcm-7", "section": "Table 7-5", "quote": "Table 7-5 - Minimum Driveway Spacing. Distances are measured from inside edge of pavement of each driveway or the edge of the intersecting street travel lanes." },
+      "needs": ["plot_line", "street_level", "driveway_class"],
+      "needs_review": true,
+      "notes": "null = N/A; minor driveways are prohibited on Level 3 and 4 streets per 7.3.1.C."
+    },
+    {
+      "id": "tcm-7.3.1.C-minor-prohibited",
+      "status": "needs_input",
+      "applies_to": "SITE",
+      "dimension": "driveway_class",
+      "conditions": { "street_level": ["L3", "L4"], "driveway_class": "minor" },
+      "prohibited": true,
+      "cite": { "doc": "tcm-7", "section": "7.3.1.C", "quote": "Minor driveways shall be prohibited from taking access to Level 3 and Level 4 Streets." },
+      "needs": ["street_level", "driveway_class"],
+      "needs_review": true
+    },
+    {
+      "id": "tcm-9.3.4.2.C-fire-lane-radius",
+      "status": "needs_input",
+      "applies_to": "DRIVE",
+      "dimension": "fire_turn_radius_inside",
+      "conditions": { "is_fire_lane": true },
+      "min_ft_inside": 25,
+      "min_ft_outside": 50,
+      "cite": { "doc": "tcm-9", "section": "9.3.4.2.C", "quote": "Access aisles shall be designed with an appropriate 25 ft. inside turning radius and a 50 ft. outside turning radius at turns to accommodate operational fire department apparatus." },
+      "needs": ["fire_lane extent"],
+      "needs_review": true,
+      "notes": "This is the rule that applies to the INTERNAL fillet radius ConnectionRadii already measures - but only where the route is a fire lane."
+    },
+    {
+      "id": "tcm-9.3.4.2.E-gate-storage",
+      "status": "needs_input",
+      "applies_to": "DRIVE",
+      "dimension": "gate_storage_length",
+      "conditions": { "has_gate": true },
+      "min_ft": 40,
+      "cite": { "doc": "tcm-9", "section": "9.3.4.2.E", "quote": "Entry driveways equipped with controlled access gates must provide a minimum of 40 ft. of storage space measured from the gate to the property line." },
+      "needs": ["gate location", "plot_line"],
+      "needs_review": true
+    },
+    {
+      "id": "tcm-7.6.2.C-inlet-clearance",
+      "status": "needs_input",
+      "applies_to": "SITE",
+      "dimension": "inlet_clearance",
+      "conditions": { "curb_inlet_present": true },
+      "min_ft": 10,
+      "cite": { "doc": "tcm-7", "section": "7.6.2.C", "quote": "If a curb inlet is present, there shall be 10 ft. between the inlet opening edge and the driveway point of tangency with the street." },
+      "needs": ["storm inlet locations"],
+      "needs_review": true
+    },
+    {
+      "id": "tcm-9.4.1.A-loading-stall",
+      "status": "needs_geometry",
+      "applies_to": "LOADING",
+      "dimension": "loading_stall_size",
+      "conditions": {},
+      "min_width_ft": 12,
+      "min_length_ft": 25,
+      "cite": { "doc": "tcm-9", "section": "9.4.1.A", "quote": "Each off-street loading zone shall consist of a rectangular area not less than 12 ft. wide and 25 ft. long, with a vertical clearance of not less than 15 ft." },
+      "needs": ["loading zone geometry"],
+      "needs_review": true
+    },
+    {
+      "id": "tcm-9.3.4.1.C-queue-space",
+      "status": "needs_geometry",
+      "applies_to": "QUEUE",
+      "dimension": "queue_space_size",
+      "conditions": {},
+      "min_width_ft": 10,
+      "min_length_ft": 25,
+      "cite": { "doc": "tcm-9", "section": "9.3.4.1.C", "quote": "Each queue space shall consist of a rectangular area not less than 10 ft. wide and 25 ft. long." },
+      "needs": ["drive-through / queue geometry"],
+      "needs_review": true
+    },
+
+    {
+      "id": "tcm-7-table-7-3-grades",
+      "status": "out_of_scope",
+      "reason": "Driveway grades are a 3D/vertical criterion. The tool analyses a flat footprint by founding constraint.",
+      "cite": { "doc": "tcm-7", "section": "Table 7-3", "quote": "Table 7-3 - Allowable Driveway Grades." },
+      "needs_review": true
+    },
+    {
+      "id": "tcm-9.3.4.1-queuing-demand",
+      "status": "out_of_scope",
+      "reason": "Required queue LENGTH derives from ITE Trip Generation rates, not from the drawing. The queue space DIMENSIONS are covered separately.",
+      "cite": { "doc": "tcm-9", "section": "9.3.4.1.J", "quote": "Expected peak hour queue is assumed to be 10-15% of all arriving vehicles during the AM or PM peak hour." },
+      "needs_review": true
+    },
+    {
+      "id": "tcm-9.2-on-street-parking",
+      "status": "out_of_scope",
+      "reason": "On-street parking sits inside the right-of-way, outside the paved footprint this tool analyses.",
+      "cite": { "doc": "tcm-9", "section": "9.2.0", "quote": "Parking is defined as on-street parking when it has direct access to vehicular travel lanes in the right-of-way." },
+      "needs_review": true
+    },
+    {
+      "id": "tcm-9.5-shared-parking",
+      "status": "out_of_scope",
+      "reason": "Shared parking is an analysis submitted with a TDM plan, not a property of the drawing.",
+      "cite": { "doc": "tcm-9", "section": "9.5.0", "quote": "Shared-use parking shall be applied for and evaluated through a Transportation Demand Management (TDM) Plan." },
+      "needs_review": true
+    },
+    {
+      "id": "tcm-9.8-bicycle-parking",
+      "status": "out_of_scope",
+      "reason": "Bicycle and dockless mobility parking are a different domain and not part of the paved vehicular footprint.",
+      "cite": { "doc": "tcm-9", "section": "9.8.0", "quote": "Bicycle parking standards ensure that required bicycle parking is easy to access, convenient and secure." },
+      "needs_review": true
+    },
+    {
+      "id": "tcm-9.3.2.Q-accessible-stalls",
+      "status": "out_of_scope",
+      "reason": "Accessible stalls follow PROWAG and Texas Accessibility Standards, not TCM Table 9-2. They must be FLAGGED in the input so they are not checked against standard stall dimensions and false-failed.",
+      "cite": { "doc": "tcm-9", "section": "9.3.2.Q", "quote": "Accessible parking stalls shall meet current PROWAG and Texas Accessible Standards (TAS)." },
+      "needs_review": true
+    }
+  ]
+}

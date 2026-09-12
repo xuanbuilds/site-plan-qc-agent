@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+/* Design tokens lifted verbatim from cedar-build/styles/tailwind.css so this
+ * prototype can fold into cedarOS without a restyle. Only the tokens this tool
+ * actually uses are carried over. */
+
+@theme inline {
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-warning: var(--warning);
+	--color-warning-foreground: var(--warning-foreground);
+	--color-success: var(--success);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-landing: var(--landing);
+	--color-landing-foreground: var(--landing-foreground);
+
+	--font-sans: "Roobert", -apple-system, "Helvetica Neue", sans-serif;
+	--font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
+
+	--shadow-glow:
+		inset 0 0 0 1px color-mix(in oklab, var(--background) 20%, transparent),
+		0 0 0 1px color-mix(in oklab, var(--landing) 15%, transparent),
+		0 0 12px 0 color-mix(in oklab, var(--landing) 45%, transparent);
+}
+
+@custom-variant dark (&:is(.dark *):not(.light, .light *));
+
+:root,
+.light {
+	--radius: 0.4375rem;
+	--background: oklch(1 0 0);
+	--foreground: oklch(0.0672 0 0);
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0.0672 0 0);
+	--primary: oklch(0.8441 0.172974 85.0728);
+	--primary-foreground: oklch(0.0847 0 0);
+	--secondary: oklch(0.8804 0.0064 75.4);
+	--secondary-foreground: oklch(0.2928 0.0018 106.51);
+	--muted: oklch(0.932 0.0035 67.78);
+	--muted-foreground: oklch(0.2931 0 0);
+	--accent: oklch(0.9766 0.0017 67.8);
+	--accent-foreground: oklch(0.0847 0 0);
+	--destructive: oklch(0.5308 0.2177 29.14);
+	--warning: oklch(0.8537 0.1572 84.13);
+	--warning-foreground: oklch(0.5744 0.1364 81.69);
+	--success: oklch(0.6406 0.1329 157.68);
+	--border: oklch(0.8328 0 0);
+	--input: oklch(0.8328 0 0);
+	--ring: oklch(0.4676 0 0);
+	--landing: oklch(0.8441 0.172974 85.0728);
+	--landing-foreground: oklch(0.0847 0 0);
+}
+
+.dark {
+	--background: oklch(0.145 0 0);
+	--foreground: oklch(0.985 0 0);
+	--card: oklch(0.205 0 0);
+	--card-foreground: oklch(0.985 0 0);
+	--primary: oklch(0.8441 0.172974 85.0728);
+	--primary-foreground: oklch(0.0847 0 0);
+	--secondary: oklch(0.269 0 0);
+	--secondary-foreground: oklch(0.985 0 0);
+	--muted: oklch(0.2156 0 0);
+	--muted-foreground: oklch(0.708 0 0);
+	--accent: oklch(0.269 0 0);
+	--accent-foreground: oklch(0.985 0 0);
+	--destructive: oklch(0.704 0.191 22.216);
+	--warning: oklch(0.8537 0.1572 84.13);
+	--warning-foreground: oklch(0.9002 0.1664 101.64);
+	--success: oklch(0.6406 0.1329 157.68);
+	--border: oklch(1 0 0 / 10%);
+	--input: oklch(1 0 0 / 25%);
+	--ring: oklch(0.556 0 0);
+}
+
+@font-face {
+	font-family: "Roobert";
+	src: url("/fonts/RoobertPROVF.woff2") format("woff2-variations");
+	font-weight: 300 800;
+	font-display: swap;
+}
+
+@layer base {
+	* {
+		border-color: var(--border);
+	}
+
+	body {
+		background-color: var(--background);
+		color: var(--foreground);
+		font-family: var(--font-sans);
+		-webkit-font-smoothing: antialiased;
+	}
+}

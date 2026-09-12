@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="8.5in" height="11in" viewBox="0 0 816 1056">
+	<rect x="0" y="0" width="816" height="1056" fill="#ffffff"/>
+	<!-- lot line -->
+	<rect x="80" y="80" width="656" height="896" fill="none" stroke="#999" stroke-width="2" stroke-dasharray="12 6"/>
+	<!-- paved footprint: a drive running north to a parking lot -->
+	<path d="M 360 976 L 456 976 L 456 520 L 700 520 L 700 200 L 116 200 L 116 520 L 360 520 Z"
+		fill="#d9d9d9" stroke="#333" stroke-width="2"/>
+	<!-- stalls drawn over the paving -->
+	<g fill="none" stroke="#333" stroke-width="1.5">
+		<rect x="140" y="220" width="60" height="120"/>
+		<rect x="200" y="220" width="60" height="120"/>
+		<rect x="260" y="220" width="60" height="120"/>
+		<rect x="320" y="220" width="60" height="120"/>
+	</g>
+	<!-- road centerline -->
+	<line x1="0" y1="1020" x2="816" y2="1020" stroke="#666" stroke-width="2" stroke-dasharray="24 8 4 8"/>
+</svg>

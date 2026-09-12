@@ -1,0 +1,15 @@
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+
+# Rhino / Visual Studio build output
+bin/
+obj/
+*.user
+
+# Local-only settings and scratch
+*.local
+.DS_Store
+Thumbs.db
