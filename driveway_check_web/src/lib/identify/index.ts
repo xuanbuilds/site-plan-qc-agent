@@ -113,9 +113,13 @@ export function identify(ring: readonly Pt[], options: IdentifyOptions = {}): Id
 
 	// Stalls are pockets in the real paving, so they are found on it rather than on
 	// the bridged analysis shape. The corridor width comes from the longest run,
-	// which is the drive itself.
+	// which is the drive itself - its MEDIAN width, not its average. The profile
+	// dips wherever the spine crosses a pinch (8.9 ft at one point on option_1,
+	// against a 24 ft drive), and an average dragged down by a pinch sets the
+	// opening too small to clear the bays beside the stalls.
 	const spine = [...classified].sort((a, b) => b.length - a.length)[0];
-	const stalls = spine ? find_stalls(paving, spine.avg_width) : [];
+	const corridor = spine ? median(spine.node_indices.map((i) => welded.profile.at(i))) : 0;
+	const stalls = spine ? find_stalls(paving, corridor) : [];
 
 	// Cuts come from the analysis polygon, the same shape the skeleton describes.
 	const boundary = analysis.getExteriorRing().getCoordinates().map((c) => ({ x: c.x, y: c.y }));
@@ -237,6 +241,12 @@ export function identify(ring: readonly Pt[], options: IdentifyOptions = {}): Id
 		})),
 		elapsed_ms: now() - started,
 	};
+}
+
+function median(values: readonly number[]): number
+{
+	const sorted = [...values].sort((a, b) => a - b);
+	return sorted[Math.floor(sorted.length / 2)] ?? 0;
 }
 
 /** A point guaranteed to lie inside a region — an interior point, not a centroid,

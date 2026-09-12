@@ -4,10 +4,10 @@
  * makes it worth having: no layer, no label, no drawn rectangle.
  *
  * A stall taken off a drive is a dead-end pocket. Morphological OPENING (erode
- * then dilate by half the corridor width) keeps the through-route and drops every
- * pocket, so paving minus its own opening IS the set of pockets. A pocket that
- * could hold a standard stall is one; a shallower pocket is the apron in front of
- * a garage, which belongs to the drive.
+ * then dilate by a radius set between a stall's width and the drive's) keeps the
+ * through-route and drops every pocket, so paving minus its own opening IS the
+ * set of pockets. A pocket that could hold a standard stall is one; a shallower
+ * pocket is the apron in front of a garage, which belongs to the drive.
  *
  * Measured on the townhouse plan: 20 pockets. Two at **162 sq ft** — exactly
  * 9 x 18 — and eighteen at 49-90 sq ft. That is not a gradient, it is two
@@ -146,12 +146,30 @@ function ring_of(polygon: JtsPolygon): Pt[]
 	return polygon.getExteriorRing().getCoordinates().map((c) => ({ x: c.x, y: c.y }));
 }
 
-/** `corridor_width` is the drive's own measured width, so the opening radius
- * scales with the plan instead of being a fixed distance. */
+/** The opening removes everything narrower than twice its radius. It has to
+ * remove EVERY pocket - the 9 ft stalls, but also the bays beside them, which on
+ * option_1 are 21-22 ft across - while leaving the drive, and the drive is only a
+ * little wider than its widest bay. Sweeping the radius on both plans:
+ *
+ *   option_1 (drive 24.0 ft median):  2r = 14..21  one stall malformed - a bay
+ *            survives and its re-dilated outline spills into the pocket next door;
+ *            2r = 22.0..23.4  both stalls clean at 162 sq ft;  2r = 25  the drive
+ *            itself dies.
+ *   option_4 (alley 31.0 ft):  2r <= 31.0 intact;  2r = 31.1 dies - three "stalls"
+ *            260 to 706 ft deep and no DRIVE left.
+ *
+ * So the cut sits just below the drive's width. Five percent below is 22.8 ft on
+ * option_1 and 29.5 ft on option_4, inside both windows with room either side.
+ * Half the average width - the first choice - put it 0.1 ft from the edge on both
+ * plans, one way on each. */
+const CORRIDOR_MARGIN = 0.95;
+
+/** `corridor_width` is the drive's typical width, its median along the spine, so
+ * the opening scales with the plan instead of being a fixed distance. */
 export function find_stalls(paving: JtsPolygon, corridor_width: number): StallFinding[]
 {
-	const radius = corridor_width / 2;
-	if (!(radius > 0)) return [];
+	if (!(corridor_width > STALL_WIDTH_FT)) return [];
+	const radius = (corridor_width * CORRIDOR_MARGIN) / 2;
 
 	const opened = mitre_buffer(mitre_buffer(paving, -radius), radius);
 	if (opened.isEmpty()) return [];
