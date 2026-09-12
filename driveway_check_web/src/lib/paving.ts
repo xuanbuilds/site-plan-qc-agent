@@ -8,6 +8,8 @@
  * from anywhere. Approach 1 only pre-selects, so a missing or changed tag costs
  * a click rather than the whole result. */
 
+import { SHAPE_SELECTOR } from "./svg";
+
 export type Candidate = {
 	/** Index into the SVG's own path order, used to highlight the element. */
 	index: number;
@@ -96,6 +98,19 @@ function readRing(d: string): [number, number][] | null
 	return points.length >= 3 ? points : null;
 }
 
+/** <polyline> and <polygon> carry bare coordinate pairs, no commands. A polygon
+ * is closed by definition, and a polyline is closed by the renderer whenever it
+ * is filled - and unfilled shapes never reach here - so both read as rings. The
+ * exporter behind option_4 draws its whole drive this way. */
+function readPoints(raw: string): [number, number][] | null
+{
+	const nums = raw.match(/-?\d+\.?\d*(?:e[+-]?\d+)?/gi)?.map(Number);
+	if (!nums || nums.length < 6) return null;
+	const points: [number, number][] = [];
+	for (let i = 0; i + 1 < nums.length; i += 2) points.push([nums[i], nums[i + 1]]);
+	return points.length >= 3 ? points : null;
+}
+
 /** Shortest distance from a point to a ring, in the ring's own units. */
 function distanceToRing(px: number, py: number, ring: [number, number][]): number
 {
@@ -117,15 +132,20 @@ function distanceToRing(px: number, py: number, ring: [number, number][]): numbe
 export function detectPaving(svg: SVGSVGElement, pxPerFt: number | null): Detection
 {
 	const scale = pxPerFt && pxPerFt > 0 ? pxPerFt : 1;
-	const paths = [...svg.querySelectorAll("path")];
+	const shapes = [...svg.querySelectorAll(SHAPE_SELECTOR)];
 	const candidates: Candidate[] = [];
 	let tagged: Candidate | null = null;
 
-	paths.forEach((path, index) =>
+	shapes.forEach((path, index) =>
 	{
+		// By now readSvg has written every effective colour onto the element itself,
+		// so the attribute is the truth whether the file used attributes or classes.
 		const fill = (path.getAttribute("fill") ?? "none").trim();
 		if (fill.toLowerCase() === "none") return;
-		const points = readRing(path.getAttribute("d") ?? "");
+		const points =
+			path.nodeName.toLowerCase() === "path"
+				? readRing(path.getAttribute("d") ?? "")
+				: readPoints(path.getAttribute("points") ?? "");
 		if (!points) return;
 
 		const m = ringMetrics(points);
@@ -154,8 +174,15 @@ export function detectPaving(svg: SVGSVGElement, pxPerFt: number | null): Detect
 		};
 		candidates.push(candidate);
 
+		// The drive colour is not unique to the drive: option_4 paints its 54 car
+		// symbols the same #4D4D4D, ~44 sq ft each, and they come after the drive in
+		// the file. Last-one-wins picked a car. The drive is the largest thing drawn
+		// in its own colour, which holds by construction rather than by luck.
 		const role = path.getAttribute("data-role");
-		if (role === "paving" || fill.toLowerCase() === CEDAR_DRIVE_FILL) tagged = candidate;
+		if (role === "paving" || fill.toLowerCase() === CEDAR_DRIVE_FILL)
+		{
+			if (!tagged || candidate.area > tagged.area) tagged = candidate;
+		}
 	});
 
 	candidates.sort((a, b) => b.score - a.score);

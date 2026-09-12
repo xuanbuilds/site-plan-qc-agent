@@ -236,7 +236,12 @@ export default function App()
 							on_apply={apply_scale}
 						/>
 						<div className="mt-5 border-t border-border pt-5">
-							<Paving detection={loaded.detection} region={region} confirmed={confirmed === true} />
+							<Paving
+								detection={loaded.detection}
+								region={region}
+								confirmed={confirmed === true}
+								scaled={loaded.info.pxPerFt !== null}
+							/>
 						</div>
 						{rulebook && (
 							<div className="mt-5 border-t border-border pt-5">
@@ -254,7 +259,8 @@ function Paving({
 	detection,
 	region,
 	confirmed,
-}: { detection: Detection; region: Candidate | null; confirmed: boolean })
+	scaled,
+}: { detection: Detection; region: Candidate | null; confirmed: boolean; scaled: boolean })
 {
 	const runner_up = detection.candidates.find((c) => c.index !== detection.best?.index);
 	const margin =
@@ -290,8 +296,10 @@ function Paving({
 						{!confirmed && detection.method === "ranked" && margin && (
 							<Row label="Margin over 2nd" value={`${margin.toFixed(1)}x`} />
 						)}
-						<Row label="Area" value={`${Math.round(region.area).toLocaleString()} sf`} />
-						<Row label="Perimeter" value={`${Math.round(region.perimeter)} ft`} />
+						{/* Without a scale these are the drawing's own units, and a plan that
+						    declares none - option_4 - would otherwise read as a 64,000 sf drive. */}
+						<Row label="Area" value={`${Math.round(region.area).toLocaleString()} ${scaled ? "sf" : "units²"}`} />
+						<Row label="Perimeter" value={`${Math.round(region.perimeter)} ${scaled ? "ft" : "units"}`} />
 					</dl>
 				</>
 			)}

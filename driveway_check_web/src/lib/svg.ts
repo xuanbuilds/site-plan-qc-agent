@@ -59,12 +59,67 @@ function readScale(svg: Element): { pxPerFt: number; source: string } | null {
 	return null;
 }
 
+/** The elements that can enclose an area. Shared with the paving detector and the
+ * index stamping in `sanitize`, so the three can never walk different lists. */
+export const SHAPE_SELECTOR = "path, polyline, polygon";
+
+/** `rgb(77, 77, 77)` as the browser reports it -> `#4d4d4d` as the file wrote it. */
+function to_hex(css: string): string | null
+{
+	const m = css.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+	if (!m) return null;
+	return "#" + [m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, "0")).join("");
+}
+
+/** Write every element's effective fill and stroke onto it as attributes.
+ *
+ * The same exporter produces two kinds of file. option_1 puts the colour on the
+ * element - `<path fill="#4D4D4D">` - and everything here reads that attribute.
+ * option_4 puts it in a stylesheet - `.cls-1866722235{fill:#4D4D4D}` on a
+ * `<polyline class=...>` - and to the attribute readers that drive looked unfilled,
+ * so the detector never saw it and the grey-out could not neutralise it.
+ *
+ * Rather than teach each reader about classes, inline styles and inheritance from
+ * a parent <g>, the browser's own cascade is asked once. That needs the SVG in the
+ * live document, so it is attached inside a hidden box for the duration and then
+ * removed; measured on the test plans this takes well under a millisecond per
+ * element. The stylesheet stays in the file - it also carries stroke widths and
+ * dash patterns - and where its rule and the new attribute say the same thing
+ * the rendering is unchanged. */
+function bake_paints(svg: Element): void
+{
+	const box = document.createElement("div");
+	box.style.display = "none";
+	const live = document.importNode(svg, true);
+	box.appendChild(live);
+	document.body.appendChild(box);
+	try
+	{
+		const targets = svg.querySelectorAll("*");
+		live.querySelectorAll("*").forEach((el, i) =>
+		{
+			const style = getComputedStyle(el);
+			for (const name of ["fill", "stroke"] as const)
+			{
+				const value = style[name];
+				const written = value === "none" ? "none" : to_hex(value);
+				if (written) targets[i].setAttribute(name, written);
+			}
+		});
+	}
+	finally
+	{
+		box.remove();
+	}
+}
+
 export function readSvg(text: string): { info: SvgInfo; svg: SVGSVGElement } | { error: string } {
 	const doc = new DOMParser().parseFromString(text, "image/svg+xml");
 	if (doc.querySelector("parsererror")) return { error: "This file is not valid XML." };
 
 	const svg = doc.documentElement;
 	if (svg.nodeName.toLowerCase() !== "svg") return { error: "The root element is not <svg>." };
+	bake_paints(svg);
 
 	const raw_view_box = svg.getAttribute("viewBox");
 	const parts = raw_view_box?.trim().split(/[\s,]+/).map(Number);
@@ -123,9 +178,9 @@ export function sanitize(svg: SVGSVGElement): string
 			}
 		}
 	});
-	// Stamp the path index so a detected region can be highlighted and clicked.
+	// Stamp the shape index so a detected region can be highlighted and clicked.
 	// Same order detectPaving walks, so the two agree without passing geometry around.
-	clone.querySelectorAll("path").forEach((path, i) => path.setAttribute("data-idx", String(i)));
+	clone.querySelectorAll(SHAPE_SELECTOR).forEach((el, i) => el.setAttribute("data-idx", String(i)));
 
 	// Let CSS drive the display size; the viewBox keeps the aspect ratio.
 	clone.removeAttribute("width");
