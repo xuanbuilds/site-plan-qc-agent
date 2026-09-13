@@ -17,7 +17,7 @@
  * dimension line), read independently: of the 207 corpus plans that carry two
  * or more agreeing ones, this estimate is within 1% on 78 and within 8% on 108;
  * the rest are lots drawn with 8 or 8.5 ft stalls. The 35 plans that declare a
- * scale are no check at all - they are small sites with no parking drawn. */
+ * scale are no check at all - they are small sites with no parking drawn.
  *
  * Coordinates are read raw, without <g transform>: the paving detector reads
  * them the same way, and every plan seen so far draws in root coordinates. */
