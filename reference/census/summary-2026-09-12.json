@@ -1,0 +1,37 @@
+{
+	"$comment": [
+		"Headless run of the web tool over every plan in reference/test SVG on 2026-09-12, at commit 77f3308 plus the median-width fix and scale-estimate.ts. Per-file rows are in census-2026-09-12.csv.",
+		"Scale per plan: data-px-per-ft when declared, else the stall-stripe estimate (pitch / 9 ft), else none - identify() only runs with a scale.",
+		"tag_is_top: whether the shape ranker would have picked the same drive the #4D4D4D tag did. It is the fallback for plans from outside Cedar, and it would have been wrong on 233 of 450."
+	],
+	"files": 494,
+	"stages": { "done": 323, "no_scale": 154, "identify_error": 16, "read_error": 1 },
+	"style": { "class_on_polyline": 457, "attribute_on_path": 36 },
+	"scale_source": { "declared": 36, "estimated": 303, "none": 154 },
+	"estimator": {
+		"found": 303,
+		"ratio_pitch_over_stripe": { "0.49-0.52 (9 x 18 stalls)": 171, "0.44-0.49 (a second stall size, 8.5 x 18 or 9 x 19)": 94, "other": 38 },
+		"drive_width_within_0.15ft_of_integer": {
+			"declared_scale": "24/31",
+			"estimated_ratio_0.49-0.52": "77/96",
+			"estimated_ratio_0.45-0.49": "21/58",
+			"estimated_ratio_other": "9/24"
+		},
+		"absurd": "6 plans read a 2,300-2,900 ft drive: a family of tiny hatch segments won (ratio 0.63 with n=24, ratio 0.375 with n=429). The estimate needs a site-extent sanity bound."
+	},
+	"detection": {
+		"method": { "tagged": 450, "ranked": 43 },
+		"tag_is_top": { "true": 217, "false": 233 },
+		"ranked_with_margin_under_2x": 34
+	},
+	"identify": {
+		"ok": 323,
+		"errors": { "jsts found non-noded intersection": 14, "jsts undefined println (error path)": 2, "not valid XML": 1 },
+		"error_files": ["08171cb3_option_1.svg", "271d4c99_option_4.svg", "3f23e4fb_option_1.svg", "3f23e4fb_option_3.svg", "55336cac_option_2.svg", "6954811e_option_1.svg", "770b3c26_option_2.svg", "b7ccbee5_option_3.svg", "d44aa9eb_option_4.svg", "e31d2797_option_1.svg", "e540f810_option_10.svg", "e540f810_option_16.svg", "e540f810_option_17.svg", "e540f810_option_18.svg", "e540f810_option_19.svg", "e540f810_option_20.svg", "532bc59d_option_3.svg (read)"],
+		"no_drive_region": 114,
+		"no_drive_region_shapes": { "LOT1": 23, "APRON1+STALL1": 13, "STALL2": 12, "STALL1": 12, "no regions at all": 7, "LOT1+STALL2": 6, "STALL3": 6, "APRON1+STALL6": 6, "other": 29 },
+		"stalls_per_plan": { "0": 170, "1": 47, "2": 40, "3": 15, "4": 12, "5": 12, "6+": 27 },
+		"aprons": { "found": 176, "indeterminate": 147 },
+		"identify_ms": { "p50": 36, "p90": 516, "max": 28681 }
+	}
+}
