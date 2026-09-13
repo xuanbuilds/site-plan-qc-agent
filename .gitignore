@@ -13,3 +13,6 @@ obj/
 *.local
 .DS_Store
 Thumbs.db
+
+# Diagnosis agents write throwaway scripts here; never part of the tool
+driveway_check_web/scripts/scratch/

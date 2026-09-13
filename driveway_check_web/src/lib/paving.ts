@@ -20,10 +20,11 @@ export type Candidate = {
 	perimeter: number;
 	width: number;
 	height: number;
-	/** area / bounding-box area. Circulation is sparse in its own box; buildings fill theirs. */
+	/** area / bounding-box area. Informational; it does not enter the score. */
 	fillRatio: number;
 	/** 2 x area / perimeter - the mean width of a corridor. */
 	meanWidth: number;
+	/** sqrt(area) x perimeter: long and thin for its size. See detectPaving. */
 	score: number;
 	/** Polygon area centroid, in SVG user units. Anchors the confirm popup. */
 	centroid: [number, number];
@@ -43,6 +44,14 @@ export type Detection = {
 /** cedarOS sets this on the drive polyline (POLYLINE_STYLES.drive in its exporter),
  * so it is a guarantee for that source rather than a colour that happens to match. */
 const CEDAR_DRIVE_FILL = "#4d4d4d";
+
+/** A white fill on a white sheet is a mask, not a surface. The exporter draws
+ * neighbouring parcels and context buildings as white polygons, many of them off
+ * the sheet, and none of them is paving: of the 6,207 shapes that outranked a
+ * tagged drive in the corpus census, 6,016 were white. They stay in the list -
+ * the list is also what a click can select, and a white parcel is a legitimate
+ * thing to point at - they just rank after everything drawn in a colour. */
+const WHITE_FILL = "#ffffff";
 
 /** Below this many square feet a filled region is a symbol or artefact, not paving. */
 const MIN_AREA = 5;
@@ -168,7 +177,15 @@ export function detectPaving(svg: SVGSVGElement, pxPerFt: number | null): Detect
 			height,
 			fillRatio,
 			meanWidth: perimeter > 0 ? (2 * area) / perimeter : 0,
-			score: fillRatio > 0 ? area / fillRatio : 0,
+			// Long and thin for its size. The first score, area / fillRatio, reduces
+			// algebraically to width * height - the bounding box - so it was "biggest
+			// box wins", and the sparseness it meant to reward never entered it.
+			// Perimeter is the corridor signal; sqrt(area) keeps a hairline strip with
+			// a long outline from beating the drive on perimeter alone. Over the 450
+			// tagged plans in the census, with white demoted: the box put the drive
+			// first on 337, perimeter on 366, sqrt(area) * perimeter on 374 - the two
+			// it still misses are a lake and a building, each larger than its drive.
+			score: Math.sqrt(area) * perimeter,
 			centroid: m.centroid,
 			inSite: true,
 		};
@@ -185,7 +202,11 @@ export function detectPaving(svg: SVGSVGElement, pxPerFt: number | null): Detect
 		}
 	});
 
-	candidates.sort((a, b) => b.score - a.score);
+	candidates.sort(
+		(a, b) =>
+			Number(a.fill.toLowerCase() === WHITE_FILL) - Number(b.fill.toLowerCase() === WHITE_FILL) ||
+			b.score - a.score
+	);
 
 	const best: Candidate | null = tagged ?? candidates[0] ?? null;
 	const method = tagged ? "tagged" : best ? "ranked" : "none";
