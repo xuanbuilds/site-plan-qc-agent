@@ -16,3 +16,6 @@ Thumbs.db
 
 # Diagnosis agents write throwaway scripts here; never part of the tool
 driveway_check_web/scripts/scratch/
+
+# Copies pulled aside for review; the originals live in reference/test SVG/
+reference/review/
