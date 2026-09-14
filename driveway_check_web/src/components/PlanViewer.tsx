@@ -520,13 +520,18 @@ export function PlanViewer({
 						proposals,
 						declined
 					);
+					const asks_use = a.label.ambiguous && !region_use[a.index];
 					return (
 						<SpeechBubble
 							key={a.index}
 							x={a.x}
 							y={a.y}
 							side="left"
-							width={region_checks.length > 0 ? 232 : 112}
+							/* 112 is only wide enough for a bare category label. Anything with
+							   text or buttons in it needs the full width - an unanswered
+							   region has no checks yet BUT does carry the question, and its
+							   buttons were overflowing the box. */
+							width={region_checks.length > 0 || question || asks_use ? 232 : 112}
 						>
 							<p className="text-xs font-medium leading-tight">
 							{region_use[a.index] ?? a.label.category}
@@ -535,7 +540,7 @@ export function PlanViewer({
 						    allows and the largest, so whether it is a lot depends on answers
 						    rather than on measurement. Asked, not assumed - and nothing is
 						    checked against it until it is answered. */}
-						{a.label.ambiguous && !region_use[a.index] && (
+						{asks_use && (
 							<div
 								className="pointer-events-auto mt-1.5 border-t border-border pt-1.5"
 								onClick={(e) => e.stopPropagation()}
@@ -544,11 +549,11 @@ export function PlanViewer({
 									{Math.round(a.label.area_sq_ft).toLocaleString()} sq ft, wide enough
 									for parking at some angles but not all. What is it?
 								</p>
-								<div className="mt-1.5 flex flex-wrap gap-1.5">
-									<Button size="sm" variant="outline" onClick={() => on_region_use(a.index, "LOT")}>
+								<div className="mt-1.5 flex flex-col gap-1.5">
+									<Button size="sm" variant="outline" className="w-full justify-start" onClick={() => on_region_use(a.index, "LOT")}>
 										Parking lot
 									</Button>
-									<Button size="sm" variant="outline" onClick={() => on_region_use(a.index, "DRIVE")}>
+									<Button size="sm" variant="outline" className="w-full justify-start" onClick={() => on_region_use(a.index, "DRIVE")}>
 										Manoeuvring space
 									</Button>
 								</div>
