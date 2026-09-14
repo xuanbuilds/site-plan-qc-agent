@@ -148,10 +148,11 @@ export default function App()
 	const angle = features && propose_parking_angle(features.stalls.map((s) => s.angle_to_aisle_deg));
 	if (angle) proposals.parking_angle = angle;
 
-	// Every filled region is selectable. Nothing on the sheet says which outline is
-	// the property boundary, so nothing here decides what is off-site - see the note
-	// on the missing site boundary in lib/paving.ts.
-	const selectable = new Set((loaded?.detection.candidates ?? []).map((c) => c.index));
+	// Selectable means inside the property boundary the drawing itself draws. With
+	// no boundary in the file every region stays selectable - see lib/plot-line.ts.
+	const selectable = new Set(
+		(loaded?.detection.candidates ?? []).filter((c) => c.on_site).map((c) => c.index)
+	);
 
 	return (
 		<div className="flex h-screen flex-col">

@@ -99,6 +99,10 @@ function bake_paints(svg: Element): void
 		live.querySelectorAll("*").forEach((el, i) =>
 		{
 			const style = getComputedStyle(el);
+			// The dash pattern comes through as-is; plot-line.ts reads it to find the
+			// property boundary, and it is written in classes on most of the corpus.
+			const dashes = style.strokeDasharray;
+			if (dashes && dashes !== "none") targets[i].setAttribute("stroke-dasharray", dashes);
 			for (const name of ["fill", "stroke"] as const)
 			{
 				const value = style[name];

@@ -8,6 +8,7 @@
  * from anywhere. Approach 1 only pre-selects, so a missing or changed tag costs
  * a click rather than the whole result. */
 
+import { overlaps_plot, read_plot_boundary, type PlotBoundary } from "./plot-line";
 import { SHAPE_SELECTOR } from "./svg";
 
 export type Candidate = {
@@ -28,6 +29,9 @@ export type Candidate = {
 	score: number;
 	/** Polygon area centroid, in SVG user units. Anchors the confirm popup. */
 	centroid: [number, number];
+	/** Overlaps the property boundary, when the drawing has one. True for every
+	 * candidate when it does not - absent a boundary, nothing is off-site. */
+	on_site: boolean;
 };
 
 export type Detection = {
@@ -35,6 +39,8 @@ export type Detection = {
 	/** Highest-ranked candidate, or the tagged one when the export cooperated. */
 	best: Candidate | null;
 	method: "tagged" | "ranked" | "none";
+	/** The property boundary read off the drawing, or null when it has none. */
+	plot: PlotBoundary | null;
 };
 
 /** cedarOS sets this on the drive polyline (POLYLINE_STYLES.drive in its exporter),
@@ -185,6 +191,7 @@ export function detect_paving(svg: SVGSVGElement, px_per_ft: number | null): Det
 			// it still misses are a lake and a building, each larger than its drive.
 			score: Math.sqrt(area) * perimeter,
 			centroid: m.centroid,
+			on_site: true,
 		};
 		candidates.push(candidate);
 
@@ -207,7 +214,18 @@ export function detect_paving(svg: SVGSVGElement, px_per_ft: number | null): Det
 
 	const best: Candidate | null = tagged ?? candidates[0] ?? null;
 	const method = tagged ? "tagged" : best ? "ranked" : "none";
-	if (!best) return { candidates, best: null, method: "none" };
+	if (!best) return { candidates, best: null, method: "none", plot: null };
 
-	return { candidates, best, method };
+	// The boundary is anchored on the paving we just found, so it can never put
+	// that paving off-site. Everything else is tested against it.
+	const plot = read_plot_boundary(svg, best.points);
+	if (plot)
+	{
+		for (const candidate of candidates)
+		{
+			candidate.on_site = candidate === best || overlaps_plot(plot, candidate.points);
+		}
+	}
+
+	return { candidates, best, method, plot };
 }
