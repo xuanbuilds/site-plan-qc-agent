@@ -75,6 +75,10 @@ export type IdentifyResult = {
  * is absolute — running this in SVG user units silently invalidates all of them
  * and produces plausible, wrong answers. */
 export type IdentifyOptions = {
+	/** Enclosed gaps in the paving, as rings in FEET - a courtyard a drive loops
+	 * around. Distinct from a median, which median-finder discovers on its own:
+	 * these are known absences the caller already has. */
+	holes?: readonly (readonly Pt[])[];
 	/** Plot/property boundary as a closed ring in FEET, for the apron trim test. */
 	plot?: readonly Pt[] | null;
 	/** Cut lines that split the footprint into faces. Empty means one face. */
@@ -88,7 +92,7 @@ export function identify(ring: readonly Pt[], options: IdentifyOptions = {}): Id
 {
 	const now = options.now ?? (() => 0);
 	const started = now();
-	const paving = polygon_from_ring(ring);
+	const paving = polygon_from_ring(ring, options.holes ?? []);
 
 	const median_polygons = options.bridge_medians === false ? [] : find_medians(paving);
 	const analysis = bridge(paving, median_polygons);

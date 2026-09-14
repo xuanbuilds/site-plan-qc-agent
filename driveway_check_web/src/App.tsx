@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { read_svg, sanitize, type SvgInfo } from "@/lib/svg";
 import { detect_paving, type Candidate, type Detection } from "@/lib/paving";
 import { identify, type IdentifyResult } from "@/lib/identify";
+import { merge_rings, type MergedRings } from "@/lib/identify/jts";
 import { coverage, evaluate, type Check, type Rulebook } from "@/lib/check/evaluate";
 import { derive, propose_parking_angle, type Proposal, type SiteAnswers } from "@/lib/check/questions";
 
@@ -24,7 +25,10 @@ type Loaded = {
 export default function App()
 {
 	const [loaded, set_loaded] = useState<Loaded | null>(null);
-	const [selected, set_selected] = useState<number | null>(null);
+	/** Every paving region the user has picked, in click order. A drive is often
+	 * drawn as several shapes - 29c0acaf_option_1 paints three - and the colour tag
+	 * keeps only the largest, so the rest have to be addable by hand. */
+	const [selected, set_selected] = useState<number[]>([]);
 	/** null = not answered yet, true = user confirmed, false = user rejected. */
 	const [confirmed, set_confirmed] = useState<boolean | null>(null);
 	const [features, set_features] = useState<IdentifyResult | null>(null);
@@ -32,6 +36,9 @@ export default function App()
 	/** What the user has actually been asked, before anything is derived from it. */
 	const [answers, set_answers] = useState<SiteAnswers>({});
 	const [rulebook, set_rulebook] = useState<Rulebook | null>(null);
+	/** What the last merge produced, so the panel can report the join rather than
+	 * present a silently altered outline. */
+	const [merged, set_merged] = useState<MergedRings | null>(null);
 	/** Picking two points on the plan to establish its scale, and the distance
 	 * between them in the drawing's own units once both are down. */
 	const [calibrating, set_calibrating] = useState(false);
@@ -62,7 +69,7 @@ export default function App()
 		set_features(null);
 		set_checks(null);
 		set_answers({});
-		set_selected(detection.best?.index ?? null);
+		set_selected(detection.best ? [detection.best.index] : []);
 		set_calibrating(false);
 		set_span(null);
 		set_loaded({ name, markup: sanitize(result.svg), info: result.info, detection, svg: result.svg });
@@ -79,7 +86,7 @@ export default function App()
 			info: { ...loaded.info, px_per_ft: px_per_ft, px_per_ft_source: "measured on the plan" },
 			detection,
 		});
-		set_selected(detection.best?.index ?? null);
+		set_selected(detection.best ? [detection.best.index] : []);
 		set_confirmed(null);
 		set_features(null);
 		set_checks(null);
@@ -92,7 +99,7 @@ export default function App()
 		set_loaded(null);
 		set_calibrating(false);
 		set_span(null);
-		set_selected(null);
+		set_selected([]);
 		set_confirmed(null);
 		set_features(null);
 		set_checks(null);
@@ -104,7 +111,7 @@ export default function App()
 	function confirm_driveway()
 	{
 		const px_per_ft = loaded?.info.px_per_ft;
-		if (!region || !px_per_ft)
+		if (regions.length === 0 || !px_per_ft)
 		{
 			set_error("Cannot identify features without a scale.");
 			return;
@@ -112,8 +119,23 @@ export default function App()
 		set_confirmed(true);
 		try
 		{
-			const ring = region.points.map(([x, y]) => ({ x: x / px_per_ft, y: y / px_per_ft }));
-			const result = identify(ring, { now: () => performance.now() });
+			// Merged in drawing units, where the gap between abutting pieces is
+			// measured, then converted once. Holes travel with the outline: a drive
+			// that loops around a courtyard encloses it, and that is not paving.
+			const merged = merge_rings(regions.map((r) => r.points.map(([x, y]) => ({ x, y }))));
+			if (!merged)
+			{
+				set_confirmed(null);
+				set_error("Those regions are too far apart to be one surface.");
+				return;
+			}
+			const to_feet = (pts: { x: number; y: number }[]) =>
+				pts.map((p) => ({ x: p.x / px_per_ft, y: p.y / px_per_ft }));
+			const result = identify(to_feet(merged.ring), {
+				holes: merged.holes.map(to_feet),
+				now: () => performance.now(),
+			});
+			set_merged(merged);
 			set_features(result);
 			// No site parameters are supplied yet, so every conditioned rule reports
 			// CANNOT_DETERMINE naming what it needs - which is the honest answer, not
@@ -132,15 +154,16 @@ export default function App()
 	function reject_driveway()
 	{
 		set_confirmed(false);
-		set_selected(null);
+		set_selected([]);
 		set_features(null);
 		set_checks(null);
 	}
 
-	const region =
-		loaded && selected !== null
-			? loaded.detection.candidates.find((c) => c.index === selected) ?? null
-			: null;
+	const regions = loaded
+		? selected.flatMap((i) => loaded.detection.candidates.filter((c) => c.index === i))
+		: [];
+	/** The one the callout points at: the biggest, so it does not land on a sliver. */
+	const primary = [...regions].sort((a, b) => b.area - a.area)[0] ?? null;
 
 	// What the drawing itself can answer, offered for confirmation rather than
 	// asked outright. Recomputed with the features, since that is where it is read.
@@ -194,8 +217,9 @@ export default function App()
 					<PlanViewer
 						markup={loaded.markup}
 						selected={selected}
+						primary={primary?.index ?? null}
 						selectable={selectable}
-						centroid={region?.centroid ?? null}
+						centroid={primary?.centroid ?? null}
 						paints={loaded.info.paints}
 						confirmed={confirmed}
 						features={features}
@@ -221,11 +245,16 @@ export default function App()
 						on_reject={reject_driveway}
 						on_select={(i) =>
 						{
-							// Picking a region re-opens the question rather than answering it -
-							// the user still has to confirm that this is the driveway.
-							set_selected(i);
+							// Clicking a region TOGGLES it. A drive drawn in several pieces is
+							// assembled by clicking each one; clicking off the paving clears the
+							// lot. Picking re-opens the question rather than answering it - the
+							// user still has to confirm that this is the driveway.
+							set_selected((prior) =>
+								i === null ? [] : prior.includes(i) ? prior.filter((x) => x !== i) : [...prior, i]
+							);
 							set_confirmed(null);
 							set_features(null);
+							set_merged(null);
 						}}
 					/>
 					<aside className="w-80 shrink-0 overflow-auto border-l border-border p-4">
@@ -240,7 +269,8 @@ export default function App()
 						<div className="mt-5 border-t border-border pt-5">
 							<Paving
 								detection={loaded.detection}
-								region={region}
+								regions={regions}
+								merged={merged}
 								confirmed={confirmed === true}
 								scaled={loaded.info.px_per_ft !== null}
 							/>
@@ -259,10 +289,17 @@ export default function App()
 
 function Paving({
 	detection,
-	region,
+	regions,
+	merged,
 	confirmed,
 	scaled,
-}: { detection: Detection; region: Candidate | null; confirmed: boolean; scaled: boolean })
+}: {
+	detection: Detection;
+	regions: Candidate[];
+	merged: MergedRings | null;
+	confirmed: boolean;
+	scaled: boolean;
+})
 {
 	const runner_up = detection.candidates.find((c) => c.index !== detection.best?.index);
 	const margin =
@@ -276,34 +313,47 @@ function Paving({
 				Paving
 			</h2>
 
-			{!region ? (
+			{regions.length === 0 ? (
 				<p className="mt-3 text-xs text-muted-foreground">
 					{detection.best
 						? "Nothing selected. Click a region on the plan."
 						: "No filled closed region found."}
 				</p>
 			) : (
-				<>
-					<dl className="mt-3 flex flex-col gap-2 text-xs">
-						<Row
-							label="Found by"
-							value={
-								confirmed
-									? "you"
-									: detection.method === "tagged"
-										? "tag"
-										: `rank 1 of ${detection.candidates.length}`
-							}
-						/>
-						{!confirmed && detection.method === "ranked" && margin && (
-							<Row label="Margin over 2nd" value={`${margin.toFixed(1)}x`} />
-						)}
-						{/* Without a scale these are the drawing's own units, and a plan that
-						    declares none - option_4 - would otherwise read as a 64,000 sf drive. */}
-						<Row label="Area" value={`${Math.round(region.area).toLocaleString()} ${scaled ? "sf" : "units²"}`} />
-						<Row label="Perimeter" value={`${Math.round(region.perimeter)} ${scaled ? "ft" : "units"}`} />
-					</dl>
-				</>
+				<dl className="mt-3 flex flex-col gap-2 text-xs">
+					<Row
+						label="Found by"
+						value={
+							confirmed || regions.length > 1
+								? "you"
+								: detection.method === "tagged"
+									? "tag"
+									: `rank 1 of ${detection.candidates.length}`
+						}
+					/>
+					{regions.length === 1 && !confirmed && detection.method === "ranked" && margin && (
+						<Row label="Margin over 2nd" value={`${margin.toFixed(1)}x`} />
+					)}
+					{regions.length > 1 && <Row label="Regions picked" value={String(regions.length)} />}
+					{/* Without a scale these are the drawing's own units, and a plan that
+					    declares none - option_4 - would otherwise read as a 64,000 sf drive. */}
+					<Row
+						label="Area"
+						value={`${Math.round(regions.reduce((t, r) => t + r.area, 0)).toLocaleString()} ${scaled ? "sf" : "units²"}`}
+					/>
+					{regions.length === 1 && (
+						<Row label="Perimeter" value={`${Math.round(regions[0].perimeter)} ${scaled ? "ft" : "units"}`} />
+					)}
+					{/* What the merge had to do to make them one surface, stated rather than
+					    hidden: the gap closed between abutting pieces, and any courtyard the
+					    joined outline now encloses. */}
+					{merged && merged.bridged_by > 0 && (
+						<Row label="Gap bridged" value={`${merged.bridged_by.toFixed(2)} ${scaled ? "ft" : "units"}`} />
+					)}
+					{merged && merged.holes.length > 0 && (
+						<Row label="Enclosed gaps" value={`${merged.holes.length} excluded`} />
+					)}
+				</dl>
 			)}
 		</div>
 	);

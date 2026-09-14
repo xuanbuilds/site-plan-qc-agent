@@ -102,8 +102,11 @@ const VERDICT_STYLE: Record<string, string> = {
 
 type Props = {
 	markup: string;
-	/** Path index of the selected paving, or null for the untouched drawing. */
-	selected: number | null;
+	/** Every picked paving region, in click order. Empty leaves the drawing
+	 * untouched. A drive is often several shapes, so this is a list. */
+	selected: readonly number[];
+	/** The one the callout points at - the largest, so it misses slivers. */
+	primary: number | null;
 	/** Path indices a click may select. Everything else is context. */
 	selectable: Set<number>;
 	/** Area centroid of the selected region, in SVG user units. */
@@ -135,6 +138,7 @@ type Props = {
 export function PlanViewer({
 	markup,
 	selected,
+	primary,
 	selectable,
 	centroid,
 	paints,
@@ -257,9 +261,9 @@ export function PlanViewer({
 	{
 		const box = frame.current;
 		const el =
-			selected === null
+			primary === null
 				? null
-				: (box?.querySelector(`[data-idx="${selected}"]`) as SVGGraphicsElement | null);
+				: (box?.querySelector(`[data-idx="${primary}"]`) as SVGGraphicsElement | null);
 		const ctm = el?.getScreenCTM?.();
 		if (!box || !ctm)
 		{
@@ -284,7 +288,7 @@ export function PlanViewer({
 					}))
 				: []
 		);
-	}, [selected, centroid, features, px_per_ft, view, markup, resized]);
+	}, [primary, centroid, features, px_per_ft, view, markup, resized]);
 
 	// Resizing the pane moves the drawing without changing scale or offset, so the
 	// callout anchors and the pan clamp both go stale unless the frame tells us.
@@ -317,10 +321,10 @@ export function PlanViewer({
 		<section className="relative min-w-0 flex-1 overflow-hidden bg-muted/40">
 			{/* Nothing is greyed while measuring: a dimension line or scale bar is
 			    usually drawn in one of the colours that would be flattened away. */}
-			{selected !== null && !calibrating && (
+			{selected.length > 0 && !calibrating && (
 				<style>{`
 					${grey_rules}
-					svg [data-idx="${selected}"]{
+					${selected.map((i) => `svg [data-idx="${i}"]`).join(",")}{
 						fill:var(--color-landing);
 						stroke:var(--color-foreground);
 						stroke-width:2;
@@ -374,6 +378,8 @@ export function PlanViewer({
 
 					const hit = (e.target as Element)?.closest?.("[data-idx]");
 					const raw = hit?.getAttribute("data-idx");
+					// A click off the paving clears the whole selection; a click on a region
+					// adds or removes that one, so several pieces build up into one drive.
 					if (raw === null || raw === undefined) { on_select(null); return; }
 					const index = Number(raw);
 					// Off-site regions stay inert rather than selectable.
@@ -548,7 +554,16 @@ export function PlanViewer({
 
 				{anchor && confirmed !== true && !calibrating && (
 					<SpeechBubble x={anchor.x} y={anchor.y} side="left" width={214}>
-						<p className="text-xs leading-relaxed">Driveway found.</p>
+						<p className="text-xs leading-relaxed">
+							{selected.length > 1
+								? `${selected.length} regions selected.`
+								: "Driveway found."}
+						</p>
+						{selected.length === 1 && (
+							<p className="mt-1 text-[11px] leading-tight text-muted-foreground">
+								Drawn in more than one piece? Click the others to add them.
+							</p>
+						)}
 						{/* The bubble sits inside the frame, so a button click also reaches the
 						    frame's click handler — which treats any click off a region as
 						    "deselect" and would undo the answer immediately. */}

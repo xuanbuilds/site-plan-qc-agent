@@ -41,6 +41,23 @@ import type { Pt } from "./skeleton-graph";
 
 export type JtsCoordinate = { x: number; y: number };
 
+/** What merge_rings produced: the outline, how many disjoint pieces went in, and
+ * the gap that had to be closed to make them one (0 when they already touched). */
+export type MergedRings = {
+	/** Outer boundary of the merged surface. */
+	ring: Pt[];
+	/** Enclosed gaps - courtyards a drive loops around. Paving's absence, and part
+	 * of the answer: dropping them inflated 29c0acaf_option_1 from 124,768 to
+	 * 263,056 units. */
+	holes: Pt[][];
+	/** How many disjoint pieces went in. */
+	pieces: number;
+	/** The gap that had to be closed to make them one; 0 when they already met. */
+	bridged_by: number;
+	/** True surface area, holes excluded. */
+	area: number;
+};
+
 export type JtsGeometry = {
 	getArea(): number;
 	getLength(): number;
@@ -50,6 +67,7 @@ export type JtsGeometry = {
 	getCoordinates(): JtsCoordinate[];
 	difference(other: JtsGeometry): JtsGeometry;
 	union(other: JtsGeometry): JtsGeometry;
+	distance(other: JtsGeometry): number;
 	intersection(other: JtsGeometry): JtsGeometry;
 	covers(other: JtsGeometry): boolean;
 	getBoundary(): JtsGeometry;
@@ -74,13 +92,20 @@ export function coord(x: number, y: number): JtsCoordinate
 
 /** Rings arrive from the SVG as open or closed point lists; jsts needs the first
  * coordinate repeated at the end. */
-export function polygon_from_ring(points: readonly Pt[]): JtsPolygon
+export function polygon_from_ring(points: readonly Pt[], holes: readonly (readonly Pt[])[] = []): JtsPolygon
 {
-	const coords = points.map((p) => coord(p.x, p.y));
-	const first = coords[0];
-	const last = coords[coords.length - 1];
-	if (first.x !== last.x || first.y !== last.y) coords.push(coord(first.x, first.y));
-	return factory.createPolygon(factory.createLinearRing(coords), []) as JtsPolygon;
+	const ring_of = (pts: readonly Pt[]) =>
+	{
+		const coords = pts.map((p) => coord(p.x, p.y));
+		const first = coords[0];
+		const last = coords[coords.length - 1];
+		if (first.x !== last.x || first.y !== last.y) coords.push(coord(first.x, first.y));
+		return factory.createLinearRing(coords);
+	};
+	// Holes are the courtyards a drive loops around. They are paving's absence, so
+	// they must reach the pipeline: without them a building enclosed by a drive
+	// reads as 138,288 units of extra surface on 29c0acaf_option_1 alone.
+	return factory.createPolygon(ring_of(points), holes.map(ring_of)) as JtsPolygon;
 }
 
 /** A two-point LineString. The Rhino pipeline cut lines are Rhino.Geometry.Line;
@@ -208,6 +233,64 @@ export function mitre_buffer(geometry: JtsGeometry, distance: number, mitreLimit
  * with no error — so a fresh one is constructed per call. The clip envelope is
  * deliberately left unset: clipping could cut cells inside the footprint, and the
  * containment filter downstream would then admit fake edges. */
+/** Merge several paving rings into the one outline the pipeline measures.
+ *
+ * Needed because a drive is often drawn as several shapes. 29c0acaf_option_1
+ * paints three of them #4D4D4D - 76,499, 28,089 and 19,986 drawing units - and
+ * the colour tag keeps only the largest, so two thirds of the drive was invisible
+ * until the user could say "these as well".
+ *
+ * A plain union is tried first and is usually not enough: those three pieces
+ * share no vertex and stand 0.992 units apart, a hairline the drafter left
+ * between abutting polygons. So when the union leaves more than one piece the
+ * gap is MEASURED and closed by exactly that much - grow every piece by half the
+ * gap so the faces meet, then shrink back by the same amount. The distance comes
+ * off the drawing rather than from a constant, and `bridged_by` reports it so
+ * the number is visible rather than buried.
+ *
+ * Returns null when the pieces are too far apart to be one surface, which is the
+ * honest answer to selecting two unrelated drives. */
+export function merge_rings(rings: readonly (readonly Pt[])[]): MergedRings | null
+{
+	if (rings.length === 0) return null;
+	// Not rings.map(polygon_from_ring): map passes the index as a second argument,
+	// which would land in the holes parameter.
+	const polygons = rings.map((r) => polygon_from_ring(r));
+	let merged = polygons.reduce((a, b) => a.union(b) as JtsPolygon);
+	const pieces = merged.getNumGeometries();
+
+	let bridged_by = 0;
+	if (pieces > 1)
+	{
+		// Smallest hop that joins any two pieces. Growing by half of it from both
+		// sides is exactly enough for their faces to touch.
+		let gap = Infinity;
+		for (let i = 0; i < pieces; i++)
+		{
+			for (let j = i + 1; j < pieces; j++)
+			{
+				const d = merged.getGeometryN(i).distance(merged.getGeometryN(j));
+				if (d > 0 && d < gap) gap = d;
+			}
+		}
+		if (!Number.isFinite(gap)) return null;
+		bridged_by = gap;
+		const reach = gap / 2 + gap * 1e-3;
+		const closed = mitre_buffer(mitre_buffer(merged, reach), -reach) as JtsPolygon;
+		if (closed.isEmpty() || closed.getNumGeometries() > 1) return null;
+		merged = closed;
+	}
+
+	const to_pts = (g: JtsGeometry) => g.getCoordinates().map((c) => ({ x: c.x, y: c.y }));
+	return {
+		ring: to_pts(merged.getExteriorRing()),
+		holes: interior_rings(merged).map(to_pts),
+		pieces,
+		bridged_by,
+		area: merged.getArea(),
+	};
+}
+
 export function voronoi_cells(sites: readonly JtsCoordinate[]): JtsPolygon[]
 {
 	const builder = new VoronoiDiagramBuilder();
