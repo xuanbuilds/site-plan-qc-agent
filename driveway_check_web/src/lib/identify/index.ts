@@ -207,13 +207,20 @@ export function identify(ring: readonly Pt[], options: IdentifyOptions = {}): Id
 			];
 		}
 
+		// The run with the MOST of itself inside this face, not merely the longest
+		// run with a toe in it. A cut lands ON a skeleton node, so the node at the
+		// cut tests inside BOTH faces: with a some() test the drive's 41 ft run was
+		// attributed to the lot as well, and a 1,788 sq ft lot reported the drive's
+		// 9.9 ft width. Ties fall to the longer run, which is the old behaviour.
 		const spine = classified
-			.filter((run) =>
-				run.node_indices.some((i) =>
+			.map((run) => ({
+				run,
+				inside: run.node_indices.filter((i) =>
 					is_inside(coord(welded.graph.nodes[i].x, welded.graph.nodes[i].y))
-				)
-			)
-			.sort((a, b) => b.length - a.length)[0];
+				).length,
+			}))
+			.filter((entry) => entry.inside > 0)
+			.sort((a, b) => b.inside - a.inside || b.run.length - a.run.length)[0]?.run;
 		if (!spine) return [];
 		const key = region.category.toLowerCase();
 		// The reported width is the spine's MEDIAN width. Its average is pulled down

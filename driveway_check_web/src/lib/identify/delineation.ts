@@ -48,6 +48,9 @@ export function build_delineation_lines(
 {
 	const lines: Line[] = [];
 	const seen_nodes = new Set<number>();
+	const longest_drive = [...runs]
+		.filter((r) => r.category === "DRIVE")
+		.sort((a, b) => b.length - a.length)[0];
 
 	for (let i = 0; i < runs.length; i++)
 	{
@@ -63,10 +66,122 @@ export function build_delineation_lines(
 			seen_nodes.add(junction);
 
 			const line = delineation_line_at(graph, profile, boundary, drive_run.node_indices, junction);
-			if (line) lines.push(line);
+			if (line) { lines.push(line); continue; }
+
+			// The wall method found nothing. That happens wherever the footprint
+			// widens gradually instead of turning a corner: the walls of a splaying
+			// corridor sit a few degrees off the spine that bisects them, and the
+			// parallel test is cos(2 degrees). On 23a219ff_option_5, 173 of the 227
+			// boundary edges beside the drive lie in a 3-7 degree band and only 2 are
+			// within 2, so no wall is ever found and the lot and the drive stay one
+			// region.
+			//
+			// Cut at the point where the drive REACHES ITS CONSTANT WIDTH instead -
+			// the end of the longest drive run, taken at whichever end faces this
+			// junction. That is the segmenter's own answer to where the corridor
+			// stops changing, so it needs no threshold, and the taper above it
+			// belongs to the region it funnels into. Where there is no taper the
+			// longest run already ends at the junction and this is the same point.
+			const cut_at = constant_width_end(graph, longest_drive, junction);
+			if (cut_at === null) continue;
+			const fallback = perpendicular_cut(graph, boundary, cut_at);
+			if (fallback) lines.push(fallback);
 		}
 	}
 	return lines;
+}
+
+/** The end of the drive's constant-width run that faces this junction. */
+function constant_width_end(
+	graph: SkeletonGraph,
+	drive: ClassifiedRun | undefined,
+	junction_index: number
+): number | null
+{
+	if (!drive || drive.node_indices.length < 2) return null;
+	const junction = graph.nodes[junction_index];
+	const first = drive.node_indices[0];
+	const last = drive.node_indices[drive.node_indices.length - 1];
+	return sq_distance(graph.nodes[first], junction) <= sq_distance(graph.nodes[last], junction)
+		? first
+		: last;
+}
+
+/** A cut square across the corridor at one skeleton node.
+ *
+ * The direction comes from the spine either side of the node rather than from a
+ * single edge: consecutive nodes zigzag by hundredths of a foot, which is enough
+ * to tilt a cut noticeably out of square, and averaging over a short span damps
+ * that without smoothing away a real bend. Both rays are then cast until they
+ * leave the footprint, so the cut spans the paving whatever shape its walls are. */
+function perpendicular_cut(
+	graph: SkeletonGraph,
+	boundary: readonly Pt[],
+	node_index: number
+): Line | null
+{
+	const at = graph.nodes[node_index];
+	const neighbours = graph.edges
+		.filter(([a, b]) => a === node_index || b === node_index)
+		.map(([a, b]) => graph.nodes[a === node_index ? b : a]);
+	if (neighbours.length === 0) return null;
+
+	// Average the directions to the node's neighbours. On a through-node the two
+	// nearly cancel, so fall back to the single longest leg.
+	let dx = 0;
+	let dy = 0;
+	for (const p of neighbours)
+	{
+		const d = Math.hypot(p.x - at.x, p.y - at.y);
+		if (d < 1e-9) continue;
+		dx += (p.x - at.x) / d;
+		dy += (p.y - at.y) / d;
+	}
+	if (Math.hypot(dx, dy) < 0.2)
+	{
+		const far = neighbours.reduce((best, p) =>
+			sq_distance(p, at) > sq_distance(best, at) ? p : best
+		);
+		dx = far.x - at.x;
+		dy = far.y - at.y;
+	}
+	const length = Math.hypot(dx, dy);
+	if (length < 1e-9) return null;
+
+	const cut_x = -dy / length;
+	const cut_y = dx / length;
+	const hit_pos = ray_to_boundary(boundary, at, cut_x, cut_y);
+	const hit_neg = ray_to_boundary(boundary, at, -cut_x, -cut_y);
+	if (!hit_pos || !hit_neg) return null;
+	return { from: hit_pos, to: hit_neg };
+}
+
+/** Nearest boundary crossing along a ray from a point inside the footprint. */
+function ray_to_boundary(
+	boundary: readonly Pt[],
+	origin: Pt,
+	dir_x: number,
+	dir_y: number
+): Pt | null
+{
+	let best: Pt | null = null;
+	let best_t = Number.MAX_VALUE;
+	for (let i = 0; i + 1 < boundary.length; i++)
+	{
+		const a = boundary[i];
+		const b = boundary[i + 1];
+		const ex = b.x - a.x;
+		const ey = b.y - a.y;
+		const denom = dir_x * ey - dir_y * ex;
+		if (Math.abs(denom) < 1e-12) continue;
+		const ox = a.x - origin.x;
+		const oy = a.y - origin.y;
+		const t = (ox * ey - oy * ex) / denom;
+		const u = (ox * dir_y - oy * dir_x) / denom;
+		if (t <= 1e-9 || u < 0 || u > 1) continue;
+		if (t < best_t) { best_t = t; best = { x: origin.x + dir_x * t, y: origin.y + dir_y * t }; }
+	}
+	return best;
 }
 
 function delineation_line_at(
