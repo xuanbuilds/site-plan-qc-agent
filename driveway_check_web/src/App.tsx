@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, FileCode2, Ruler, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { readSvg, sanitize, type SvgInfo } from "@/lib/svg";
-import { detectPaving, type Candidate, type Detection } from "@/lib/paving";
+import { read_svg, sanitize, type SvgInfo } from "@/lib/svg";
+import { detect_paving, type Candidate, type Detection } from "@/lib/paving";
 import { identify, type IdentifyResult } from "@/lib/identify";
 import { coverage, evaluate, type Check, type Rulebook } from "@/lib/check/evaluate";
 import { derive, propose_parking_angle, type Proposal, type SiteAnswers } from "@/lib/check/questions";
@@ -50,13 +50,13 @@ export default function App()
 
 	function open(name: string, text: string)
 	{
-		const result = readSvg(text);
+		const result = read_svg(text);
 		if ("error" in result)
 		{
 			set_error(result.error);
 			return;
 		}
-		const detection = detectPaving(result.svg, result.info.pxPerFt);
+		const detection = detect_paving(result.svg, result.info.px_per_ft);
 		set_error(null);
 		set_confirmed(null);
 		set_features(null);
@@ -73,10 +73,10 @@ export default function App()
 	function apply_scale(px_per_ft: number)
 	{
 		if (!loaded || !(px_per_ft > 0)) return;
-		const detection = detectPaving(loaded.svg, px_per_ft);
+		const detection = detect_paving(loaded.svg, px_per_ft);
 		set_loaded({
 			...loaded,
-			info: { ...loaded.info, pxPerFt: px_per_ft, pxPerFtSource: "measured on the plan" },
+			info: { ...loaded.info, px_per_ft: px_per_ft, px_per_ft_source: "measured on the plan" },
 			detection,
 		});
 		set_selected(detection.best?.index ?? null);
@@ -103,7 +103,7 @@ export default function App()
 	 * feet, so the conversion happens once here rather than by scaling constants. */
 	function confirm_driveway()
 	{
-		const px_per_ft = loaded?.info.pxPerFt;
+		const px_per_ft = loaded?.info.px_per_ft;
 		if (!region || !px_per_ft)
 		{
 			set_error("Cannot identify features without a scale.");
@@ -149,7 +149,7 @@ export default function App()
 	if (angle) proposals.parking_angle = angle;
 
 	const selectable = new Set(
-		(loaded?.detection.candidates ?? []).filter((c) => c.inSite).map((c) => c.index)
+		(loaded?.detection.candidates ?? []).filter((c) => c.in_site).map((c) => c.index)
 	);
 
 	return (
@@ -198,7 +198,7 @@ export default function App()
 						confirmed={confirmed}
 						features={features}
 						checks={checks}
-						px_per_ft={loaded.info.pxPerFt}
+						px_per_ft={loaded.info.px_per_ft}
 						calibrating={calibrating}
 						on_span={set_span}
 						answers={answers}
@@ -240,7 +240,7 @@ export default function App()
 								detection={loaded.detection}
 								region={region}
 								confirmed={confirmed === true}
-								scaled={loaded.info.pxPerFt !== null}
+								scaled={loaded.info.px_per_ft !== null}
 							/>
 						</div>
 						{rulebook && (
@@ -325,8 +325,8 @@ function Declares({ info, calibrating, span, on_start, on_cancel, on_apply }: De
 			: null;
 
 	const extent =
-		info.pxPerFt && info.viewBox
-			? `${round(info.viewBox.w / info.pxPerFt)} x ${round(info.viewBox.h / info.pxPerFt)} ft`
+		info.px_per_ft && info.viewBox
+			? `${round(info.viewBox.w / info.px_per_ft)} x ${round(info.viewBox.h / info.px_per_ft)} ft`
 			: null;
 
 	return (
@@ -344,25 +344,25 @@ function Declares({ info, calibrating, span, on_start, on_cancel, on_apply }: De
 					/>
 					<Row
 						label="Scale"
-						value={info.pxPerFt ? `${info.pxPerFt.toFixed(4)} px/ft` : "not declared"}
-						warn={!info.pxPerFt}
+						value={info.px_per_ft ? `${info.px_per_ft.toFixed(4)} px/ft` : "not declared"}
+						warn={!info.px_per_ft}
 					/>
-					{info.pxPerFtSource && (
+					{info.px_per_ft_source && (
 						<Row
 							label="Scale source"
-							value={info.pxPerFtSource}
-							monoValue={info.pxPerFtSource.startsWith("data-")}
+							value={info.px_per_ft_source}
+							monoValue={info.px_per_ft_source.startsWith("data-")}
 						/>
 					)}
 					<Row label="Site extent" value={extent ?? "unknown"} muted={!extent} />
-					<Row label="Elements" value={info.elementCount.toString()} />
+					<Row label="Elements" value={info.element_count.toString()} />
 				</dl>
 
 				{calibrating ? (
 					<Calibrate info={info} span={span} on_cancel={on_cancel} on_apply={on_apply} />
 				) : (
 					<Button variant="outline" size="sm" className="mt-3 w-full" onClick={on_start}>
-						<Ruler /> {info.pxPerFt ? "Re-measure scale" : "Measure the scale"}
+						<Ruler /> {info.px_per_ft ? "Re-measure scale" : "Measure the scale"}
 					</Button>
 				)}
 			</div>
@@ -372,7 +372,7 @@ function Declares({ info, calibrating, span, on_start, on_cancel, on_apply }: De
 					Contents
 				</h2>
 				<dl className="mt-3 flex flex-col gap-1.5 text-xs">
-					{info.tagCounts.slice(0, 12).map(([tag, count]) => (
+					{info.tag_counts.slice(0, 12).map(([tag, count]) => (
 						<Row key={tag} label={tag} value={count.toString()} mono />
 					))}
 				</dl>

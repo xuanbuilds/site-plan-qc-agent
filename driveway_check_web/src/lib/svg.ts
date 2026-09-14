@@ -22,19 +22,19 @@ export type SvgInfo = {
 	height: SvgLength | null;
 	viewBox: { x: number; y: number; w: number; h: number } | null;
 	/** User units per inch of paper. Needs both a physical width and a viewBox. */
-	unitsPerInch: number | null;
+	units_per_inch: number | null;
 	/** User units per real-world foot, and where that came from. Null when unknown. */
-	pxPerFt: number | null;
-	pxPerFtSource: string | null;
-	elementCount: number;
+	px_per_ft: number | null;
+	px_per_ft_source: string | null;
+	element_count: number;
 	/** Every distinct element tag in the file, most frequent first. */
-	tagCounts: [string, number][];
+	tag_counts: [string, number][];
 	/** Every distinct fill/stroke colour in the file. Used to grey the plan down
 	 * around a selection without a CSS filter, which would grey the highlight too. */
 	paints: string[];
 };
 
-function parseLength(raw: string | null): SvgLength | null {
+function parse_length(raw: string | null): SvgLength | null {
 	if (!raw) return null;
 	const match = raw.trim().match(/^(-?[\d.]+)\s*([a-z%]*)$/i);
 	if (!match) return null;
@@ -50,11 +50,11 @@ function parseLength(raw: string | null): SvgLength | null {
 /** Cedar's own exporter stamps the drawing scale on the root as data-px-per-ft.
  * That is the only place real-world scale has ever been found in a plan SVG, so
  * it is read explicitly rather than inferred. */
-function readScale(svg: Element): { pxPerFt: number; source: string } | null {
+function read_scale(svg: Element): { px_per_ft: number; source: string } | null {
 	const declared = svg.getAttribute("data-px-per-ft");
 	if (declared) {
 		const value = Number(declared);
-		if (Number.isFinite(value) && value > 0) return { pxPerFt: value, source: "data-px-per-ft" };
+		if (Number.isFinite(value) && value > 0) return { px_per_ft: value, source: "data-px-per-ft" };
 	}
 	return null;
 }
@@ -113,7 +113,7 @@ function bake_paints(svg: Element): void
 	}
 }
 
-export function readSvg(text: string): { info: SvgInfo; svg: SVGSVGElement } | { error: string } {
+export function read_svg(text: string): { info: SvgInfo; svg: SVGSVGElement } | { error: string } {
 	const doc = new DOMParser().parseFromString(text, "image/svg+xml");
 	if (doc.querySelector("parsererror")) return { error: "This file is not valid XML." };
 
@@ -128,9 +128,9 @@ export function readSvg(text: string): { info: SvgInfo; svg: SVGSVGElement } | {
 			? { x: parts[0], y: parts[1], w: parts[2], h: parts[3] }
 			: null;
 
-	const width = parseLength(svg.getAttribute("width"));
-	const height = parseLength(svg.getAttribute("height"));
-	const scale = readScale(svg);
+	const width = parse_length(svg.getAttribute("width"));
+	const height = parse_length(svg.getAttribute("height"));
+	const scale = read_scale(svg);
 
 	const counts = new Map<string, number>();
 	const paints = new Set<string>();
@@ -150,11 +150,11 @@ export function readSvg(text: string): { info: SvgInfo; svg: SVGSVGElement } | {
 			width,
 			height,
 			viewBox,
-			unitsPerInch: width?.inches && viewBox ? viewBox.w / width.inches : null,
-			pxPerFt: scale?.pxPerFt ?? null,
-			pxPerFtSource: scale?.source ?? null,
-			elementCount: all.length,
-			tagCounts: [...counts.entries()].sort((a, b) => b[1] - a[1]),
+			units_per_inch: width?.inches && viewBox ? viewBox.w / width.inches : null,
+			px_per_ft: scale?.px_per_ft ?? null,
+			px_per_ft_source: scale?.source ?? null,
+			element_count: all.length,
+			tag_counts: [...counts.entries()].sort((a, b) => b[1] - a[1]),
 			paints: [...paints],
 		},
 	};
@@ -179,7 +179,7 @@ export function sanitize(svg: SVGSVGElement): string
 		}
 	});
 	// Stamp the shape index so a detected region can be highlighted and clicked.
-	// Same order detectPaving walks, so the two agree without passing geometry around.
+	// Same order detect_paving walks, so the two agree without passing geometry around.
 	clone.querySelectorAll(SHAPE_SELECTOR).forEach((el, i) => el.setAttribute("data-idx", String(i)));
 
 	// Let CSS drive the display size; the viewBox keeps the aspect ratio.

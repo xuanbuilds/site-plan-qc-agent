@@ -21,15 +21,15 @@ export type Candidate = {
 	width: number;
 	height: number;
 	/** area / bounding-box area. Informational; it does not enter the score. */
-	fillRatio: number;
+	fill_ratio: number;
 	/** 2 x area / perimeter - the mean width of a corridor. */
-	meanWidth: number;
-	/** sqrt(area) x perimeter: long and thin for its size. See detectPaving. */
+	mean_width: number;
+	/** sqrt(area) x perimeter: long and thin for its size. See detect_paving. */
 	score: number;
 	/** Polygon area centroid, in SVG user units. Anchors the confirm popup. */
 	centroid: [number, number];
 	/** Close enough to the detected paving to belong to this site rather than context. */
-	inSite: boolean;
+	in_site: boolean;
 };
 
 export type Detection = {
@@ -38,7 +38,7 @@ export type Detection = {
 	best: Candidate | null;
 	method: "tagged" | "ranked" | "none";
 	/** Distance from the paving, in feet, inside which a region counts as on-site. */
-	siteReach: number;
+	site_reach: number;
 };
 
 /** cedarOS sets this on the drive polyline (POLYLINE_STYLES.drive in its exporter),
@@ -62,7 +62,7 @@ const MIN_AREA = 5;
  * Expressed against the drive rather than in feet so it scales with the plan. */
 const SITE_REACH_RATIO = 2;
 
-function ringMetrics(points: [number, number][])
+function ring_metrics(points: [number, number][])
 {
 	let twice_area = 0;
 	let perimeter = 0;
@@ -96,7 +96,7 @@ function ringMetrics(points: [number, number][])
 /** Only straight-line paths are read. The exporters we have seen tessellate
  * everything, and a curve command would need flattening before these metrics
  * mean anything - better to skip than to measure it wrong. */
-function readRing(d: string): [number, number][] | null
+function read_ring(d: string): [number, number][] | null
 {
 	if (!/z/i.test(d)) return null;
 	if (/[^MLZmlz0-9\s.,+-]/.test(d)) return null;
@@ -111,7 +111,7 @@ function readRing(d: string): [number, number][] | null
  * is closed by definition, and a polyline is closed by the renderer whenever it
  * is filled - and unfilled shapes never reach here - so both read as rings. The
  * exporter behind option_4 draws its whole drive this way. */
-function readPoints(raw: string): [number, number][] | null
+function read_points(raw: string): [number, number][] | null
 {
 	const nums = raw.match(/-?\d+\.?\d*(?:e[+-]?\d+)?/gi)?.map(Number);
 	if (!nums || nums.length < 6) return null;
@@ -121,7 +121,7 @@ function readPoints(raw: string): [number, number][] | null
 }
 
 /** Shortest distance from a point to a ring, in the ring's own units. */
-function distanceToRing(px: number, py: number, ring: [number, number][]): number
+function distance_to_ring(px: number, py: number, ring: [number, number][]): number
 {
 	let best = Infinity;
 	for (let i = 0; i < ring.length; i++)
@@ -138,26 +138,26 @@ function distanceToRing(px: number, py: number, ring: [number, number][]): numbe
 	return best;
 }
 
-export function detectPaving(svg: SVGSVGElement, pxPerFt: number | null): Detection
+export function detect_paving(svg: SVGSVGElement, px_per_ft: number | null): Detection
 {
-	const scale = pxPerFt && pxPerFt > 0 ? pxPerFt : 1;
+	const scale = px_per_ft && px_per_ft > 0 ? px_per_ft : 1;
 	const shapes = [...svg.querySelectorAll(SHAPE_SELECTOR)];
 	const candidates: Candidate[] = [];
 	let tagged: Candidate | null = null;
 
 	shapes.forEach((path, index) =>
 	{
-		// By now readSvg has written every effective colour onto the element itself,
+		// By now read_svg has written every effective colour onto the element itself,
 		// so the attribute is the truth whether the file used attributes or classes.
 		const fill = (path.getAttribute("fill") ?? "none").trim();
 		if (fill.toLowerCase() === "none") return;
 		const points =
 			path.nodeName.toLowerCase() === "path"
-				? readRing(path.getAttribute("d") ?? "")
-				: readPoints(path.getAttribute("points") ?? "");
+				? read_ring(path.getAttribute("d") ?? "")
+				: read_points(path.getAttribute("points") ?? "");
 		if (!points) return;
 
-		const m = ringMetrics(points);
+		const m = ring_metrics(points);
 		const area = m.area / (scale * scale);
 		if (area < MIN_AREA) return;
 
@@ -165,7 +165,7 @@ export function detectPaving(svg: SVGSVGElement, pxPerFt: number | null): Detect
 		const height = m.height / scale;
 		const perimeter = m.perimeter / scale;
 		const box = width * height;
-		const fillRatio = box > 0 ? area / box : 1;
+		const fill_ratio = box > 0 ? area / box : 1;
 
 		const candidate: Candidate = {
 			index,
@@ -175,9 +175,9 @@ export function detectPaving(svg: SVGSVGElement, pxPerFt: number | null): Detect
 			perimeter,
 			width,
 			height,
-			fillRatio,
-			meanWidth: perimeter > 0 ? (2 * area) / perimeter : 0,
-			// Long and thin for its size. The first score, area / fillRatio, reduces
+			fill_ratio,
+			mean_width: perimeter > 0 ? (2 * area) / perimeter : 0,
+			// Long and thin for its size. The first score, area / fill_ratio, reduces
 			// algebraically to width * height - the bounding box - so it was "biggest
 			// box wins", and the sparseness it meant to reward never entered it.
 			// Perimeter is the corridor signal; sqrt(area) keeps a hairline strip with
@@ -187,7 +187,7 @@ export function detectPaving(svg: SVGSVGElement, pxPerFt: number | null): Detect
 			// it still misses are a lake and a building, each larger than its drive.
 			score: Math.sqrt(area) * perimeter,
 			centroid: m.centroid,
-			inSite: true,
+			in_site: true,
 		};
 		candidates.push(candidate);
 
@@ -210,17 +210,17 @@ export function detectPaving(svg: SVGSVGElement, pxPerFt: number | null): Detect
 
 	const best: Candidate | null = tagged ?? candidates[0] ?? null;
 	const method = tagged ? "tagged" : best ? "ranked" : "none";
-	if (!best) return { candidates, best: null, method: "none", siteReach: 0 };
+	if (!best) return { candidates, best: null, method: "none", site_reach: 0 };
 
 	// Context — neighbouring parcels, streets, adjacent buildings — is drawn on the
 	// same sheet and is just as clickable as the site. Anchoring the site to the
 	// paving keeps a stray click from picking a building across the road.
-	const reach = best.meanWidth * SITE_REACH_RATIO;
+	const reach = best.mean_width * SITE_REACH_RATIO;
 	for (const candidate of candidates)
 	{
-		const distance = distanceToRing(candidate.centroid[0], candidate.centroid[1], best.points) / scale;
-		candidate.inSite = candidate === best || distance <= reach;
+		const distance = distance_to_ring(candidate.centroid[0], candidate.centroid[1], best.points) / scale;
+		candidate.in_site = candidate === best || distance <= reach;
 	}
 
-	return { candidates, best, method, siteReach: reach };
+	return { candidates, best, method, site_reach: reach };
 }
