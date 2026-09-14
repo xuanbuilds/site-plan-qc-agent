@@ -80,18 +80,23 @@ export default function App()
 	function apply_scale(px_per_ft: number)
 	{
 		if (!loaded || !(px_per_ft > 0)) return;
+		// Detection runs again because its areas and perimeters are in feet and were
+		// in drawing units until now. The SELECTION survives: same document, same
+		// shape order, so the indices still mean what they meant - and a user who
+		// assembled a drive out of three pieces should not have to do it twice.
 		const detection = detect_paving(loaded.svg, px_per_ft);
 		set_loaded({
 			...loaded,
 			info: { ...loaded.info, px_per_ft: px_per_ft, px_per_ft_source: "measured on the plan" },
 			detection,
 		});
-		set_selected(detection.best ? [detection.best.index] : []);
-		set_confirmed(null);
-		set_features(null);
-		set_checks(null);
 		set_calibrating(false);
 		set_span(null);
+		const picked = selected.flatMap((i) => detection.candidates.filter((c) => c.index === i));
+		if (picked.length === 0) { set_selected(detection.best ? [detection.best.index] : []); return; }
+		// Measuring the scale was the last thing standing between a confirmed drive
+		// and its checks, so run them now rather than asking the user to confirm twice.
+		if (confirmed === true) run_identification(picked, px_per_ft);
 	}
 
 	function clear()
@@ -108,21 +113,27 @@ export default function App()
 	/** Confirming the driveway runs identification immediately - there is nothing
 	 * else the user would want to do at that point. Everything downstream is in
 	 * feet, so the conversion happens once here rather than by scaling constants. */
+	/** Confirming the driveway says nothing about scale. It is an answer to "is
+	 * this the drive" and it is always available; the scale is a separate thing the
+	 * drawing may or may not carry, asked for on the canvas when it is missing. */
 	function confirm_driveway()
 	{
-		const px_per_ft = loaded?.info.px_per_ft;
-		if (regions.length === 0 || !px_per_ft)
-		{
-			set_error("Cannot identify features without a scale.");
-			return;
-		}
+		if (regions.length === 0) return;
 		set_confirmed(true);
+		set_error(null);
+		const px_per_ft = loaded?.info.px_per_ft;
+		if (!px_per_ft) { set_calibrating(true); set_span(null); return; }
+		run_identification(regions, px_per_ft);
+	}
+
+	function run_identification(picked: Candidate[], px_per_ft: number)
+	{
 		try
 		{
 			// Merged in drawing units, where the gap between abutting pieces is
 			// measured, then converted once. Holes travel with the outline: a drive
 			// that loops around a courtyard encloses it, and that is not paving.
-			const merged = merge_rings(regions.map((r) => r.points.map(([x, y]) => ({ x, y }))));
+			const merged = merge_rings(picked.map((r) => r.points.map(([x, y]) => ({ x, y }))));
 			if (!merged)
 			{
 				set_confirmed(null);
@@ -226,7 +237,12 @@ export default function App()
 						checks={checks}
 						px_per_ft={loaded.info.px_per_ft}
 						calibrating={calibrating}
+						span={span}
+						view_box={loaded.info.viewBox}
 						on_span={set_span}
+						on_apply_scale={apply_scale}
+						on_measure={() => { set_calibrating(true); set_span(null); }}
+						on_cancel_measure={() => { set_calibrating(false); set_span(null); }}
 						answers={answers}
 						proposals={proposals}
 						on_answer={(key, value) =>
@@ -261,10 +277,7 @@ export default function App()
 						<Declares
 							info={loaded.info}
 							calibrating={calibrating}
-							span={span}
 							on_start={() => { set_calibrating(true); set_span(null); }}
-							on_cancel={() => set_calibrating(false)}
-							on_apply={apply_scale}
 						/>
 						<div className="mt-5 border-t border-border pt-5">
 							<Paving
@@ -362,14 +375,10 @@ function Paving({
 type DeclaresProps = {
 	info: SvgInfo;
 	calibrating: boolean;
-	/** Distance between the two picked points, in the drawing's own units. */
-	span: number | null;
 	on_start: () => void;
-	on_cancel: () => void;
-	on_apply: (px_per_ft: number) => void;
 };
 
-function Declares({ info, calibrating, span, on_start, on_cancel, on_apply }: DeclaresProps)
+function Declares({ info, calibrating, on_start }: DeclaresProps)
 {
 	const paper =
 		info.width?.inches && info.height?.inches
@@ -410,8 +419,13 @@ function Declares({ info, calibrating, span, on_start, on_cancel, on_apply }: De
 					<Row label="Elements" value={info.element_count.toString()} />
 				</dl>
 
+				{/* The measuring itself happens on the drawing: picking the two points and
+				    typing the distance both belong beside the line being measured, not in
+				    a panel the user has to look away to find. This is only the way in. */}
 				{calibrating ? (
-					<Calibrate info={info} span={span} on_cancel={on_cancel} on_apply={on_apply} />
+					<p className="mt-3 text-xs text-muted-foreground">
+						Measuring on the plan.
+					</p>
 				) : (
 					<Button variant="outline" size="sm" className="mt-3 w-full" onClick={on_start}>
 						<Ruler /> {info.px_per_ft ? "Re-measure scale" : "Measure the scale"}
@@ -433,80 +447,6 @@ function Declares({ info, calibrating, span, on_start, on_cancel, on_apply }: De
 	);
 }
 
-/** Establishing the scale by measuring something on the drawing whose real size is
- * known.
- *
- * Only Cedar's own exporter stamps data-px-per-ft, so for a plan from anywhere
- * else this is the only way to get from drawing units to feet. Every constant in
- * the identification pipeline is an absolute distance in feet, so without it
- * nothing downstream can run at all — and a scale that is merely close produces
- * plausible, wrong verdicts rather than an obvious failure.
- *
- * Two points and a distance covers every case a site plan offers, because they
- * are all the same measurement: the ends of a drawn dimension line, the ends of a
- * scale bar, or across a parking stall. Zoom in first — the picks are taken in
- * the drawing's coordinates, so accuracy is limited only by how close you get. */
-function Calibrate({
-	info,
-	span,
-	on_cancel,
-	on_apply,
-}: { info: SvgInfo; span: number | null; on_cancel: () => void; on_apply: (px_per_ft: number) => void })
-{
-	const [feet, set_feet] = useState("");
-	const entered = Number(feet);
-	const proposed = span && entered > 0 ? span / entered : null;
-
-	// The extent this scale would imply, shown live. A site that comes out 40 ft
-	// across or 4 miles across is a misplaced decimal, and seeing it here costs
-	// nothing — whereas noticing it from the verdicts costs the whole run.
-	const extent =
-		proposed && info.viewBox
-			? `${round(info.viewBox.w / proposed)} x ${round(info.viewBox.h / proposed)} ft`
-			: null;
-
-	return (
-		<div className="mt-3 rounded-md border border-border bg-muted/40 p-3">
-			<p className="text-xs leading-relaxed text-muted-foreground">
-				{span
-					? "Now give the real distance between the two points."
-					: "Click two points on the plan whose real distance you know — the ends of a dimension line, a scale bar, or across a parking stall."}
-			</p>
-
-			<div className="mt-2.5 flex items-center gap-1.5">
-				<input
-					type="number"
-					inputMode="decimal"
-					min="0"
-					step="any"
-					value={feet}
-					disabled={!span}
-					onChange={(e) => set_feet(e.target.value)}
-					onKeyDown={(e) => { if (e.key === "Enter" && proposed) on_apply(proposed); }}
-					placeholder="0"
-					className="h-8 w-full min-w-0 rounded-md border border-border bg-background px-2 text-xs disabled:opacity-50"
-				/>
-				<span className="text-xs text-muted-foreground">ft</span>
-			</div>
-
-			{extent && (
-				<dl className="mt-2.5 flex flex-col gap-1.5 text-xs">
-					<Row label="Scale" value={`${proposed!.toFixed(4)} px/ft`} />
-					<Row label="Site extent" value={extent} />
-				</dl>
-			)}
-
-			<div className="mt-2.5 flex gap-1.5">
-				<Button size="sm" disabled={!proposed} onClick={() => proposed && on_apply(proposed)}>
-					Apply
-				</Button>
-				<Button size="sm" variant="ghost" onClick={on_cancel}>
-					Cancel
-				</Button>
-			</div>
-		</div>
-	);
-}
 
 type RowProps = {
 	label: string;

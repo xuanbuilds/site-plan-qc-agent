@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check as CheckIcon, Maximize2, Minus, MousePointerClick, Plus, X } from "lucide-react";
+import { Check as CheckIcon, Maximize2, Minus, MousePointerClick, Plus, Ruler, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SpeechBubble } from "@/components/SpeechBubble";
 import type { IdentifyResult } from "@/lib/identify";
@@ -123,7 +123,13 @@ type Props = {
 	calibrating: boolean;
 	/** Distance between the two picked points, in SVG user units. Null while fewer
 	 * than two are down. */
+	span: number | null;
+	/** The drawing's own extent, to show what a proposed scale would imply. */
+	view_box: { x: number; y: number; w: number; h: number } | null;
 	on_span: (svg_units: number | null) => void;
+	on_apply_scale: (px_per_ft: number) => void;
+	on_measure: () => void;
+	on_cancel_measure: () => void;
 	on_select: (index: number | null) => void;
 	on_confirm: () => void;
 	on_reject: () => void;
@@ -147,7 +153,12 @@ export function PlanViewer({
 	checks,
 	px_per_ft,
 	calibrating,
+	span,
+	view_box,
 	on_span,
+	on_apply_scale,
+	on_measure,
+	on_cancel_measure,
 	on_select,
 	on_confirm,
 	on_reject,
@@ -171,6 +182,11 @@ export function PlanViewer({
 	const [picks, set_picks] = useState<{ x: number; y: number }[]>([]);
 	const [hover, set_hover] = useState<{ x: number; y: number } | null>(null);
 	const [anchor, set_anchor] = useState<{ x: number; y: number } | null>(null);
+	/** Midpoint of the measured line, in screen pixels. */
+	const [pick_anchor, set_pick_anchor] = useState<{ x: number; y: number } | null>(null);
+	/** The distance typed against the measured line. Lives here because the input
+	 * that collects it is in the callout. */
+	const [feet, set_feet] = useState("");
 	/** Bumped whenever the frame resizes, to re-run the layout-dependent effects. */
 	const [resized, set_resized] = useState(0);
 	const [label_anchors, set_label_anchors] = useState<
@@ -178,6 +194,14 @@ export function PlanViewer({
 	>([]);
 	const frame = useRef<HTMLDivElement>(null);
 	const dragging = useRef<{ x: number; y: number; downX: number; downY: number } | null>(null);
+
+	/** The scale the typed distance implies, and what it would make the site. */
+	const entered = Number(feet);
+	const proposed_scale = span && entered > 0 ? span / entered : null;
+	const implied_extent =
+		proposed_scale && view_box
+			? `${Math.round(view_box.w / proposed_scale)} x ${Math.round(view_box.h / proposed_scale)} ft`
+			: null;
 
 	const grey_rules = useMemo(
 		() =>
@@ -207,6 +231,7 @@ export function PlanViewer({
 	useEffect(() =>
 	{
 		if (!calibrating) { set_picks([]); set_hover(null); }
+		set_feet("");
 	}, [calibrating]);
 
 	/** Zoom about a point so whatever is under the cursor stays under the cursor. */
@@ -279,6 +304,14 @@ export function PlanViewer({
 		};
 
 		set_anchor(centroid ? to_screen(centroid[0], centroid[1]) : null);
+		// Once both ends are down the callout belongs on the line being measured,
+		// not on the drive: that is where the user is looking and what the number
+		// they are about to type refers to.
+		set_pick_anchor(
+			picks.length === 2
+				? to_screen((picks[0].x + picks[1].x) / 2, (picks[0].y + picks[1].y) / 2)
+				: null
+		);
 		set_label_anchors(
 			features && px_per_ft
 				? features.labels.map((label, index) => ({
@@ -288,7 +321,7 @@ export function PlanViewer({
 					}))
 				: []
 		);
-	}, [primary, centroid, features, px_per_ft, view, markup, resized]);
+	}, [primary, centroid, features, px_per_ft, view, markup, resized, picks]);
 
 	// Resizing the pane moves the drawing without changing scale or offset, so the
 	// callout anchors and the pan clamp both go stale unless the frame tells us.
@@ -551,6 +584,99 @@ export function PlanViewer({
 						</SpeechBubble>
 					);
 				})}
+
+				{/* Measuring the scale, on the drawing. Before both ends are down the
+				    callout sits on the drive and says what to do; once they are down it
+				    moves to the middle of the line just drawn and collects the distance
+				    there, beside the thing being measured. */}
+				{calibrating && (pick_anchor ?? anchor) && (
+					<SpeechBubble
+						x={(pick_anchor ?? anchor)!.x}
+						y={(pick_anchor ?? anchor)!.y}
+						side="left"
+						width={picks.length === 2 ? 236 : 224}
+					>
+						{picks.length < 2 ? (
+							<>
+								<p className="text-xs font-medium leading-tight">
+									The drawing does not state its scale.
+								</p>
+								<p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+									Click two points a distance you know apart — the ends of a dimension
+									line, a scale bar, or across a parking stall.
+								</p>
+								<p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+									{picks.length === 1 ? "Now the second point." : "Zoom in first for a closer pick."}
+								</p>
+								<div
+									className="pointer-events-auto mt-2 flex gap-1.5"
+									onClick={(e) => e.stopPropagation()}
+								>
+									<Button size="sm" variant="outline" onClick={on_cancel_measure}>
+										<X /> Cancel
+									</Button>
+								</div>
+							</>
+						) : (
+							<div className="pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+								<p className="text-xs font-medium leading-tight">
+									How far apart are these points?
+								</p>
+								<div className="mt-2 flex items-center gap-1.5">
+									<input
+										autoFocus
+										type="number"
+										inputMode="decimal"
+										min="0"
+										step="any"
+										value={feet}
+										onChange={(e) => set_feet(e.target.value)}
+										onKeyDown={(e) => { if (e.key === "Enter" && proposed_scale) on_apply_scale(proposed_scale); }}
+										placeholder="0"
+										className="h-8 w-full min-w-0 rounded-md border border-border bg-background px-2 text-xs"
+									/>
+									<span className="text-xs text-muted-foreground">ft</span>
+								</div>
+								{/* What this scale would make the site. A misplaced decimal is
+								    obvious here and invisible once it is only moving verdicts. */}
+								{implied_extent && (
+									<p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+										{proposed_scale!.toFixed(4)} units per foot — site {implied_extent}
+									</p>
+								)}
+								<div className="mt-2 flex gap-1.5">
+									<Button size="sm" disabled={!proposed_scale} onClick={() => proposed_scale && on_apply_scale(proposed_scale)}>
+										<CheckIcon /> Apply
+									</Button>
+									<Button size="sm" variant="outline" onClick={on_cancel_measure}>
+										<X /> Cancel
+									</Button>
+								</div>
+							</div>
+						)}
+					</SpeechBubble>
+				)}
+
+				{/* Confirmed, but the drawing carries no scale and the user backed out of
+				    measuring. Nothing can be measured until it is known, and saying so
+				    here beats a banner above a plan the user is not looking at. */}
+				{anchor && confirmed === true && !px_per_ft && !calibrating && (
+					<SpeechBubble x={anchor.x} y={anchor.y} side="left" width={228}>
+						<p className="text-xs font-medium leading-tight">Driveway confirmed.</p>
+						<p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+							Nothing can be measured against the code until the drawing's scale is
+							known, and this one does not state it.
+						</p>
+						<div
+							className="pointer-events-auto mt-2 flex gap-1.5"
+							onClick={(e) => e.stopPropagation()}
+						>
+							<Button size="sm" onClick={on_measure}>
+								<Ruler /> Measure the scale
+							</Button>
+						</div>
+					</SpeechBubble>
+				)}
 
 				{anchor && confirmed !== true && !calibrating && (
 					<SpeechBubble x={anchor.x} y={anchor.y} side="left" width={214}>
