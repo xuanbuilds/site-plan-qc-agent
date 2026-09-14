@@ -39,6 +39,9 @@ export default function App()
 	/** What the last merge produced, so the panel can report the join rather than
 	 * present a silently altered outline. */
 	const [merged, set_merged] = useState<MergedRings | null>(null);
+	/** What the user says an area is, where shape could not settle it, keyed by
+	 * region index. Until answered, nothing is checked against that region. */
+	const [region_use, set_region_use] = useState<Record<number, "LOT" | "DRIVE">>({});
 	/** Picking two points on the plan to establish its scale, and the distance
 	 * between them in the drawing's own units once both are down. */
 	const [calibrating, set_calibrating] = useState(false);
@@ -148,10 +151,11 @@ export default function App()
 			});
 			set_merged(merged);
 			set_features(result);
+			set_region_use({});
 			// No site parameters are supplied yet, so every conditioned rule reports
 			// CANNOT_DETERMINE naming what it needs - which is the honest answer, not
 			// a gap to paper over.
-			set_checks(rulebook ? evaluate(rulebook, result.measurements, derive(answers)) : null);
+			set_checks(rulebook ? evaluate(rulebook, resolve_uses(result, {}), derive(answers)) : null);
 			set_error(null);
 		}
 		catch (e)
@@ -162,6 +166,24 @@ export default function App()
 	}
 
 	/** Rejecting clears the proposal and asks for a click, rather than guessing again. */
+	/** Measurements for regions whose use is settled. A region shape could not
+	 * settle is left out entirely until the user says what it is - a lot and a
+	 * drive are checked against different tables, so guessing picks the wrong one.
+	 * An answered region is re-labelled, dimension name and all, because the rule
+	 * keys on `lot_width` or `drive_width` rather than on the region. */
+	function resolve_uses(result: IdentifyResult, uses: Record<number, "LOT" | "DRIVE">)
+	{
+		return result.measurements.flatMap((m) =>
+		{
+			const label = result.labels[m.region_index];
+			if (!label?.ambiguous) return [m];
+			const use = uses[m.region_index];
+			if (!use) return [];
+			const dimension = m.dimension.replace(/^[a-z]+_/, use.toLowerCase() + "_");
+			return [{ ...m, category: use, dimension }];
+		});
+	}
+
 	function reject_driveway()
 	{
 		set_confirmed(false);
@@ -245,6 +267,16 @@ export default function App()
 						on_cancel_measure={() => { set_calibrating(false); set_span(null); }}
 						answers={answers}
 						proposals={proposals}
+						region_use={region_use}
+						on_region_use={(index, use) =>
+						{
+							const next = { ...region_use, [index]: use };
+							set_region_use(next);
+							if (features && rulebook)
+							{
+								set_checks(evaluate(rulebook, resolve_uses(features, next), derive(answers)));
+							}
+						}}
 						on_answer={(key, value) =>
 						{
 							// Re-run the whole rulebook, not just the check that asked: one
@@ -254,7 +286,7 @@ export default function App()
 							set_answers(next);
 							if (features && rulebook)
 							{
-								set_checks(evaluate(rulebook, features.measurements, derive(next)));
+								set_checks(evaluate(rulebook, resolve_uses(features, region_use), derive(next)));
 							}
 						}}
 						on_confirm={confirm_driveway}

@@ -15,6 +15,7 @@
  * a number picked to fit. */
 
 import { boundary_distance, coord, mitre_buffer, polygon_from_ring, type JtsPolygon } from "./jts";
+import { oriented_box } from "./oriented-box";
 import type { Pt } from "./skeleton-graph";
 import type { Line } from "./region-builder";
 
@@ -22,6 +23,10 @@ import type { Line } from "./region-builder";
 export const STALL_WIDTH_FT = 9;
 export const STALL_DEPTH_FT = 18;
 const STALL_AREA_SQ_FT = STALL_WIDTH_FT * STALL_DEPTH_FT;
+
+/** Longest stall in TCM Table 9-2: a parallel space, 22 ft by 8 ft-6 in. Every
+ * other row is shallower, so nothing the table calls a stall exceeds this. */
+const MAX_STALL_LENGTH_FT = 22;
 
 /** A pocket has to be able to HOLD a stall, not match one exactly — its mouth
  * flares where it meets the drive, so it reads slightly larger, and the erosion
@@ -111,36 +116,6 @@ function angle_to_aisle(ring: readonly Pt[], mouth: Line): number | null
 	return Math.acos(Math.min(1, cosine)) * (180 / Math.PI);
 }
 
-/** Longest chord of a point set, and the extent perpendicular to it. Good enough
- * for an oriented size on a near-rectangular pocket, and it needs no library. */
-function oriented_extent(points: readonly Pt[]): { long: number; short: number; ends: [Pt, Pt] }
-{
-	let best = 0;
-	let a = points[0];
-	let b = points[0];
-	for (let i = 0; i < points.length; i++)
-	{
-		for (let j = i + 1; j < points.length; j++)
-		{
-			const d = Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y);
-			if (d > best) { best = d; a = points[i]; b = points[j]; }
-		}
-	}
-	if (best <= 0) return { long: 0, short: 0, ends: [a, b] };
-
-	const ux = (b.x - a.x) / best;
-	const uy = (b.y - a.y) / best;
-	let min_perp = Infinity;
-	let max_perp = -Infinity;
-	for (const p of points)
-	{
-		const perp = -(p.x - a.x) * uy + (p.y - a.y) * ux;
-		if (perp < min_perp) min_perp = perp;
-		if (perp > max_perp) max_perp = perp;
-	}
-	return { long: best, short: max_perp - min_perp, ends: [a, b] };
-}
-
 function ring_of(polygon: JtsPolygon): Pt[]
 {
 	return polygon.getExteriorRing().getCoordinates().map((c) => ({ x: c.x, y: c.y }));
@@ -185,10 +160,19 @@ export function find_stalls(paving: JtsPolygon, corridor_width: number): StallFi
 		if (area < STALL_AREA_SQ_FT * AREA_ALLOWANCE) continue;
 
 		const ring = ring_of(pocket as JtsPolygon);
-		const extent = oriented_extent(ring);
-		// A pocket wide enough to hold a stall across its narrow direction. Without
-		// this a long shallow scallop of the same area would qualify.
-		if (extent.short < STALL_WIDTH_FT) continue;
+		// The smallest enclosing rectangle, not the longest chord. A chord runs
+		// corner to corner, so on option_1 a real 13.5 x 18.0 ft stall measures 22.5
+		// across the diagonal and a 22 ft length bound threw it away. The box sides
+		// are the stall's own dimensions.
+		const box = oriented_box(ring);
+		if (!box) continue;
+		// Wide enough to hold a stall across its narrow direction. Without this a
+		// long shallow scallop of the same area would qualify.
+		if (box.short_ft < STALL_WIDTH_FT) continue;
+		// And no longer than the longest stall the code describes. Nothing bounded
+		// the far dimension before, so on 23a219ff_option_5 a 39.5 ft sliver of the
+		// drive came back as a stall and relabelled the whole 2,264 sq ft region.
+		if (box.long_ft > MAX_STALL_LENGTH_FT) continue;
 
 		// A pocket's ring is part real paving wall and part artificial closure drawn
 		// across its mouth by the opening. The mouth is the closure — so it is the

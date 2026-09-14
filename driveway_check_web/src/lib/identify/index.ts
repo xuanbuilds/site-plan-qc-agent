@@ -41,6 +41,9 @@ export type RegionLabel = {
 	at: Pt;
 	area_sq_ft: number;
 	detail: string;
+	/** Shape could not settle whether this is a parking lot or manoeuvring space
+	 * belonging to the drive. The callout asks instead of asserting. */
+	ambiguous: boolean;
 };
 
 export type IdentifyResult = {
@@ -243,6 +246,7 @@ export function identify(ring: readonly Pt[], options: IdentifyOptions = {}): Id
 		measurements: measured,
 		labels: regions.map((region, index) => ({
 			category: region.category,
+			ambiguous: region.run?.ambiguous ?? false,
 			at: region_anchor(region),
 			area_sq_ft: region.lanes.reduce((total, lane) => total + lane.getArea(), 0),
 			detail: measured

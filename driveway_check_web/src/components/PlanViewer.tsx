@@ -139,6 +139,10 @@ type Props = {
 	proposals: Record<string, Proposal>;
 	/** Answer to a question the geometry could not settle. */
 	on_answer: (key: string, value: unknown) => void;
+	/** What the user says a region is, when shape could not settle it, keyed by
+	 * region index. */
+	region_use: Record<number, "LOT" | "DRIVE">;
+	on_region_use: (index: number, use: "LOT" | "DRIVE") => void;
 };
 
 export function PlanViewer({
@@ -165,6 +169,8 @@ export function PlanViewer({
 	answers,
 	proposals,
 	on_answer,
+	region_use,
+	on_region_use,
 }: Props)
 {
 	const [view, set_view] = useState<View>(FIT);
@@ -522,7 +528,32 @@ export function PlanViewer({
 							side="left"
 							width={region_checks.length > 0 ? 232 : 112}
 						>
-							<p className="text-xs font-medium leading-tight">{a.label.category}</p>
+							<p className="text-xs font-medium leading-tight">
+							{region_use[a.index] ?? a.label.category}
+						</p>
+						{/* Shape puts this area between the smallest parking module the code
+						    allows and the largest, so whether it is a lot depends on answers
+						    rather than on measurement. Asked, not assumed - and nothing is
+						    checked against it until it is answered. */}
+						{a.label.ambiguous && !region_use[a.index] && (
+							<div
+								className="pointer-events-auto mt-1.5 border-t border-border pt-1.5"
+								onClick={(e) => e.stopPropagation()}
+							>
+								<p className="text-[11px] leading-snug">
+									{Math.round(a.label.area_sq_ft).toLocaleString()} sq ft, wide enough
+									for parking at some angles but not all. What is it?
+								</p>
+								<div className="mt-1.5 flex flex-wrap gap-1.5">
+									<Button size="sm" variant="outline" onClick={() => on_region_use(a.index, "LOT")}>
+										Parking lot
+									</Button>
+									<Button size="sm" variant="outline" onClick={() => on_region_use(a.index, "DRIVE")}>
+										Manoeuvring space
+									</Button>
+								</div>
+							</div>
+						)}
 							{region_checks.map((check, i) => (
 								<div key={i} className="mt-1.5 border-t border-border pt-1.5">
 									<p className={`text-[11px] font-medium leading-tight ${VERDICT_STYLE[check.verdict]}`}>
