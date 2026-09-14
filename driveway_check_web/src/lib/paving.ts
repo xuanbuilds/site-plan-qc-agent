@@ -28,8 +28,6 @@ export type Candidate = {
 	score: number;
 	/** Polygon area centroid, in SVG user units. Anchors the confirm popup. */
 	centroid: [number, number];
-	/** Close enough to the detected paving to belong to this site rather than context. */
-	in_site: boolean;
 };
 
 export type Detection = {
@@ -37,8 +35,6 @@ export type Detection = {
 	/** Highest-ranked candidate, or the tagged one when the export cooperated. */
 	best: Candidate | null;
 	method: "tagged" | "ranked" | "none";
-	/** Distance from the paving, in feet, inside which a region counts as on-site. */
-	site_reach: number;
 };
 
 /** cedarOS sets this on the drive polyline (POLYLINE_STYLES.drive in its exporter),
@@ -53,14 +49,34 @@ const CEDAR_DRIVE_FILL = "#4d4d4d";
  * thing to point at - they just rank after everything drawn in a colour. */
 const WHITE_FILL = "#ffffff";
 
-/** Below this many square feet a filled region is a symbol or artefact, not paving. */
+/** Below this, a filled region is a symbol or an artefact rather than paving.
+ *
+ * In SQUARE FEET when the file declares a scale. With no scale there is nothing
+ * to convert with, so the same number is applied to the drawing's own units -
+ * a different threshold, deliberately, because the alternative is inventing a
+ * conversion. It only ever discards specks, so the difference does not decide
+ * anything: across the 36 declared-scale plans, 915 filled shapes, the two
+ * thresholds disagree about none of them and neither discards a single shape. */
 const MIN_AREA = 5;
 
-/** How far off the paving a region can sit and still belong to this site, as a
- * multiple of the paving's own mean width. Measured on option_1.svg: everything
- * on the site tops out at 1.6x, the nearest context building starts at 2.8x.
- * Expressed against the drive rather than in feet so it scales with the plan. */
-const SITE_REACH_RATIO = 2;
+/** NO SITE BOUNDARY IS APPLIED. Every filled region on the sheet is a candidate
+ * and every one is clickable, including a neighbour's building across the road.
+ *
+ * There was a proximity rule here - within twice the drive's own width of the
+ * drive - and it was invented, not measured from anything the drawing states.
+ * It also could not help the ranking, since it needs the drive in order to say
+ * what is near the drive.
+ *
+ * The plans do draw their plot lines: closed, unfilled, 5-20 vertex outlines
+ * stroked #D4D2D2, present in 410 of the 450 plans with a tagged drive. They
+ * are unusable as a site boundary because the subject parcel and the
+ * neighbouring parcels are drawn identically - same stroke, same weight, no
+ * tag - so nothing in the file says which one is the site. One older export
+ * did label them (data-name="contextParcels", 24 files), which shows the
+ * information exists upstream and simply is not exported. Until it is, or
+ * until the user draws the boundary, guessing which outline is the site would
+ * be the same mistake as guessing the scale: a confident wrong answer with
+ * nothing on screen to show it is wrong. */
 
 function ring_metrics(points: [number, number][])
 {
@@ -120,24 +136,6 @@ function read_points(raw: string): [number, number][] | null
 	return points.length >= 3 ? points : null;
 }
 
-/** Shortest distance from a point to a ring, in the ring's own units. */
-function distance_to_ring(px: number, py: number, ring: [number, number][]): number
-{
-	let best = Infinity;
-	for (let i = 0; i < ring.length; i++)
-	{
-		const [x1, y1] = ring[i];
-		const [x2, y2] = ring[(i + 1) % ring.length];
-		const dx = x2 - x1;
-		const dy = y2 - y1;
-		const len_sq = dx * dx + dy * dy;
-		let t = len_sq > 0 ? ((px - x1) * dx + (py - y1) * dy) / len_sq : 0;
-		t = Math.max(0, Math.min(1, t));
-		best = Math.min(best, Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy)));
-	}
-	return best;
-}
-
 export function detect_paving(svg: SVGSVGElement, px_per_ft: number | null): Detection
 {
 	const scale = px_per_ft && px_per_ft > 0 ? px_per_ft : 1;
@@ -187,7 +185,6 @@ export function detect_paving(svg: SVGSVGElement, px_per_ft: number | null): Det
 			// it still misses are a lake and a building, each larger than its drive.
 			score: Math.sqrt(area) * perimeter,
 			centroid: m.centroid,
-			in_site: true,
 		};
 		candidates.push(candidate);
 
@@ -210,17 +207,7 @@ export function detect_paving(svg: SVGSVGElement, px_per_ft: number | null): Det
 
 	const best: Candidate | null = tagged ?? candidates[0] ?? null;
 	const method = tagged ? "tagged" : best ? "ranked" : "none";
-	if (!best) return { candidates, best: null, method: "none", site_reach: 0 };
+	if (!best) return { candidates, best: null, method: "none" };
 
-	// Context — neighbouring parcels, streets, adjacent buildings — is drawn on the
-	// same sheet and is just as clickable as the site. Anchoring the site to the
-	// paving keeps a stray click from picking a building across the road.
-	const reach = best.mean_width * SITE_REACH_RATIO;
-	for (const candidate of candidates)
-	{
-		const distance = distance_to_ring(candidate.centroid[0], candidate.centroid[1], best.points) / scale;
-		candidate.in_site = candidate === best || distance <= reach;
-	}
-
-	return { candidates, best, method, site_reach: reach };
+	return { candidates, best, method };
 }
